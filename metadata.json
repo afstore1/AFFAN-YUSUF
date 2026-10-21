@@ -1,0 +1,6 @@
+{
+  "name": "KasirPro - Aplikasi Kasir & POS Modern",
+  "description": "Sistem Kasir POS lengkap dengan login terpisah Super Admin dan Anggota, manajemen barang, stok real-time, dan struk pembayaran thermal.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
