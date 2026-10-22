@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'affan.yusuf192@guru.smp.belajar.id' ||
+        (request.auth.token.keys().hasAll(['admin']) && request.auth.token.admin == true)
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation helper for Products
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'code', 'name', 'category', 'price', 'costPrice', 'stock', 'unit', 'minStockAlert'])
+        && data.keys().hasOnly(['id', 'code', 'name', 'category', 'price', 'costPrice', 'stock', 'unit', 'minStockAlert', 'imageUrl', 'description', 'updatedAt'])
+        && data.id is string && isValidId(data.id)
+        && data.code is string && data.code.size() <= 100
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 200
+        && data.category is string && data.category.size() <= 100
+        && data.price is number && data.price >= 0
+        && data.costPrice is number && data.costPrice >= 0
+        && data.stock is number
+        && data.unit is string && data.unit.size() <= 50
+        && data.minStockAlert is number && data.minStockAlert >= 0
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1000000))
+        && (!('description' in data) || (data.description is string && data.description.size() <= 1000))
+        && (!('updatedAt' in data) || (data.updatedAt is string && data.updatedAt.size() <= 100));
+    }
+
+    // Validation helper for Transactions
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'receiptNumber', 'date', 'cashierId', 'cashierName', 'cashierRole', 'items', 'subtotal', 'discount', 'tax', 'total', 'totalProfit', 'paymentMethod', 'cashGiven', 'change'])
+        && data.keys().hasOnly(['id', 'receiptNumber', 'date', 'cashierId', 'cashierName', 'cashierRole', 'items', 'subtotal', 'discount', 'tax', 'total', 'totalProfit', 'paymentMethod', 'cashGiven', 'change', 'customerName', 'note'])
+        && data.id is string && isValidId(data.id)
+        && data.receiptNumber is string && data.receiptNumber.size() <= 100
+        && data.date is string && data.date.size() <= 100
+        && data.cashierId is string && data.cashierId.size() <= 128
+        && data.cashierName is string && data.cashierName.size() <= 100
+        && data.cashierRole in ['super_admin', 'anggota']
+        && data.items is list && data.items.size() <= 200
+        && data.subtotal is number
+        && data.discount is number
+        && data.tax is number
+        && data.total is number
+        && data.totalProfit is number
+        && data.paymentMethod in ['cash', 'qris', 'debit', 'transfer']
+        && data.cashGiven is number
+        && data.change is number
+        && (!('customerName' in data) || (data.customerName is string && data.customerName.size() <= 100))
+        && (!('note' in data) || (data.note is string && data.note.size() <= 500));
+    }
+
+    // Validation helper for StockPurchases
+    function isValidStockPurchase(data) {
+      return data.keys().hasAll(['id', 'date', 'amount', 'description', 'createdAt'])
+        && data.keys().hasOnly(['id', 'date', 'amount', 'description', 'createdAt'])
+        && data.id is string && isValidId(data.id)
+        && data.date is string && data.date.size() <= 50
+        && data.amount is number && data.amount >= 0
+        && data.description is string && data.description.size() <= 500
+        && data.createdAt is string && data.createdAt.size() <= 100;
+    }
+
+    // Validation helper for StoreSettings
+    function isValidStoreSettings(data) {
+      return data.keys().hasAll(['storeName', 'storeAddress', 'storePhone', 'footerMessage', 'enableSound', 'enableTax', 'taxRatePercent'])
+        && data.keys().hasOnly(['storeName', 'storeAddress', 'storePhone', 'storeLogoUrl', 'footerMessage', 'enableSound', 'enableTax', 'taxRatePercent'])
+        && data.storeName is string && data.storeName.size() <= 200
+        && data.storeAddress is string && data.storeAddress.size() <= 500
+        && data.storePhone is string && data.storePhone.size() <= 50
+        && (!('storeLogoUrl' in data) || (data.storeLogoUrl is string && data.storeLogoUrl.size() <= 1000000))
+        && data.footerMessage is string && data.footerMessage.size() <= 500
+        && data.enableSound is bool
+        && data.enableTax is bool
+        && data.taxRatePercent is number;
+    }
+
+    // Validation helper for UserAccounts
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['id', 'username', 'password', 'fullName', 'role', 'phone', 'avatarColor', 'createdAt', 'status'])
+        && data.keys().hasOnly(['id', 'username', 'password', 'fullName', 'role', 'phone', 'email', 'avatarColor', 'createdAt', 'status'])
+        && data.id is string && isValidId(data.id)
+        && data.username is string && data.username.size() <= 100
+        && data.password is string && data.password.size() <= 200
+        && data.fullName is string && data.fullName.size() <= 100
+        && data.role in ['super_admin', 'anggota']
+        && data.phone is string && data.phone.size() <= 50
+        && (!('email' in data) || (data.email is string && data.email.size() <= 150))
+        && data.avatarColor is string && data.avatarColor.size() <= 50
+        && data.createdAt is string && data.createdAt.size() <= 100
+        && data.status in ['active', 'inactive'];
+    }
+
+    // Products collection
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
+      allow update: if isSignedIn() && isValidId(productId) && isValidProduct(incoming()) && (
+        isSuperAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'updatedAt'])
+      );
+      allow delete: if isSuperAdmin();
+    }
+
+    // Transactions collection
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
+      allow update: if isSuperAdmin() && isValidId(transactionId) && isValidTransaction(incoming());
+      allow delete: if isSuperAdmin();
+    }
+
+    // Stock Purchases collection
+    match /stockPurchases/{purchaseId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(purchaseId) && isValidStockPurchase(incoming());
+      allow update: if isSignedIn() && isValidId(purchaseId) && isValidStockPurchase(incoming());
+      allow delete: if isSuperAdmin();
+    }
+
+    // Store Settings collection
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(settingId) && isValidStoreSettings(incoming());
+      allow delete: if false;
+    }
+
+    // User Accounts collection
+    match /userAccounts/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId) && isValidUserAccount(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && isValidUserAccount(incoming());
+      allow delete: if isSuperAdmin();
+    }
+  }
+}

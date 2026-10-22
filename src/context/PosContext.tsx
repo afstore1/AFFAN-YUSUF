@@ -3,11 +3,31 @@ import { UserAccount, Product, CartItem, Transaction, StoreSettings, UserRole, S
 import { INITIAL_USERS, INITIAL_PRODUCTS, INITIAL_SETTINGS, INITIAL_TRANSACTIONS, INITIAL_STOCK_PURCHASES } from '../data/initialData';
 import { sound } from '../utils/sound';
 import { generateReceiptNumber } from '../utils/format';
+import { db, auth, handleFirestoreError, OperationType } from '../firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  onSnapshot,
+  getDocs,
+  getDoc
+} from 'firebase/firestore';
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  onAuthStateChanged,
+  User as FirebaseUser
+} from 'firebase/auth';
 
 export type SyncStatus = 'synced' | 'syncing' | 'error' | 'offline';
 
 interface PosContextType {
   currentUser: UserAccount | null;
+  firebaseUser: FirebaseUser | null;
+  isAuthReady: boolean;
   users: UserAccount[];
   products: Product[];
   cart: CartItem[];
@@ -23,6 +43,7 @@ interface PosContextType {
   exportBackupData: () => void;
   importBackupData: (data: any) => Promise<{ success: boolean; message: string }>;
   // Auth methods
+  signInWithGoogle: () => Promise<{ success: boolean; message: string }>;
   login: (username: string, password: string, requiredRole: UserRole) => { success: boolean; message: string };
   logout: () => void;
   // Member methods (Super Admin only)
@@ -71,24 +92,18 @@ const STORAGE_KEYS = {
 
 export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Sync status across devices and accounts
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  const initialServerLoadedRef = useRef(false);
-  const isSyncingRef = useRef(false);
 
-  // Load initial states from localStorage for instant display
+  // Firebase auth state
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
+  // Local state initialized with cached or default values
   const [users, setUsers] = useState<UserAccount[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-      if (saved) {
-        const parsed: UserAccount[] = JSON.parse(saved);
-        return parsed.map(u => {
-          if (u.role === 'super_admin' && (u.fullName.includes('Ahmad Fauzi') || u.username === 'admin')) {
-            return { ...u, fullName: 'AFFAN YUSUF (Super Admin)', email: 'affan.yusuf192@guru.smp.belajar.id' };
-          }
-          return u;
-        });
-      }
+      if (saved) return JSON.parse(saved);
       return INITIAL_USERS;
     } catch {
       return INITIAL_USERS;
@@ -98,26 +113,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-      if (saved) {
-        const parsed: Product[] = JSON.parse(saved);
-        return parsed.map(p => {
-          let updated = { ...p };
-          if (!updated.imageUrl) {
-            const initialMatch = INITIAL_PRODUCTS.find(ip => ip.id === p.id || ip.code === p.code);
-            if (initialMatch?.imageUrl) {
-              updated.imageUrl = initialMatch.imageUrl;
-            }
-          }
-          // Bulatkan harga dan modal setiap barang ke kelipatan ribuan bulat
-          if (updated.price && updated.price % 1000 !== 0) {
-            updated.price = Math.round(updated.price / 1000) * 1000;
-          }
-          if (updated.costPrice && updated.costPrice % 1000 !== 0) {
-            updated.costPrice = Math.round(updated.costPrice / 1000) * 1000;
-          }
-          return updated;
-        });
-      }
+      if (saved) return JSON.parse(saved);
       return INITIAL_PRODUCTS;
     } catch {
       return INITIAL_PRODUCTS;
@@ -145,13 +141,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [settings, setSettings] = useState<StoreSettings>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      if (saved) {
-        const parsed: StoreSettings = JSON.parse(saved);
-        if (parsed.storeName === 'TOKO BERKAH REZEKI POS' || parsed.storeName === 'TOKO BERKAH REZEKI' || !parsed.storeName) {
-          return { ...parsed, storeName: 'AFSTORE' };
-        }
-        return parsed;
-      }
+      if (saved) return JSON.parse(saved);
       return INITIAL_SETTINGS;
     } catch {
       return INITIAL_SETTINGS;
@@ -161,13 +151,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-      if (saved) {
-        const parsed: UserAccount = JSON.parse(saved);
-        if (parsed.role === 'super_admin' && (parsed.fullName.includes('Ahmad Fauzi') || parsed.username === 'admin')) {
-          return { ...parsed, fullName: 'AFFAN YUSUF (Super Admin)', email: 'affan.yusuf192@guru.smp.belajar.id' };
-        }
-        return parsed;
-      }
+      if (saved) return JSON.parse(saved);
       return null;
     } catch {
       return null;
@@ -176,176 +160,202 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeTab, setActiveTab] = useState<'pos' | 'products' | 'members' | 'reports' | 'settings'>('pos');
+  const isSeedingRef = useRef(false);
 
-  // Cross-tab broadcast channel
-  const channelRef = useRef<BroadcastChannel | null>(null);
-
+  // 1. Listen to Firebase Auth state
   useEffect(() => {
-    if (typeof BroadcastChannel !== 'undefined') {
-      try {
-        const channel = new BroadcastChannel('afstore_sync_channel');
-        channel.onmessage = (event) => {
-          if (event.data?.type === 'SYNC_REQUEST') {
-            syncWithServer(true);
-          }
-        };
-        channelRef.current = channel;
-        return () => {
-          channel.close();
-        };
-      } catch {}
-    }
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setFirebaseUser(user);
+      setIsAuthReady(true);
+
+      if (user) {
+        // Multi-Account Google Login sync
+        const isSuperAdminEmail = user.email?.toLowerCase() === 'affan.yusuf192@guru.smp.belajar.id';
+        if (isSuperAdminEmail) {
+          const adminAccount: UserAccount = {
+            id: user.uid,
+            username: 'affan.yusuf',
+            password: '',
+            fullName: user.displayName || 'AFFAN YUSUF (Super Admin)',
+            role: 'super_admin',
+            phone: '081234567890',
+            email: user.email || 'affan.yusuf192@guru.smp.belajar.id',
+            avatarColor: 'bg-indigo-600',
+            createdAt: new Date().toISOString(),
+            status: 'active'
+          };
+          setCurrentUser(adminAccount);
+        } else if (user.email) {
+          setCurrentUser(prev => {
+            if (prev && prev.email?.toLowerCase() === user.email?.toLowerCase()) return prev;
+            return {
+              id: user.uid,
+              username: (user.email?.split('@')[0] || 'kasir').toLowerCase(),
+              password: '',
+              fullName: user.displayName || 'Anggota Kasir',
+              role: 'anggota',
+              phone: '-',
+              email: user.email || undefined,
+              avatarColor: 'bg-emerald-600',
+              createdAt: new Date().toISOString(),
+              status: 'active'
+            };
+          });
+        }
+      }
+    });
+
+    return () => unsubscribeAuth();
   }, []);
 
-  // Push changes to server storage
-  const pushToServer = async (overrideData?: {
-    users?: UserAccount[];
-    products?: Product[];
-    transactions?: Transaction[];
-    stockPurchases?: StockPurchase[];
-    settings?: StoreSettings;
-  }) => {
-    try {
-      setSyncStatus('syncing');
-      const body = {
-        users: overrideData?.users ?? users,
-        products: overrideData?.products ?? products,
-        transactions: overrideData?.transactions ?? transactions,
-        stockPurchases: overrideData?.stockPurchases ?? stockPurchases,
-        settings: overrideData?.settings ?? settings,
-      };
-
-      // Notify other local tabs immediately
-      channelRef.current?.postMessage({ type: 'SYNC_REQUEST' });
-
-      const res = await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      if (res.ok) {
-        setSyncStatus('synced');
-        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
-      } else {
-        setSyncStatus('error');
-      }
-    } catch {
-      setSyncStatus('offline');
-    }
-  };
-
-  // Pull latest data from server storage
-  const syncWithServer = async (silent: boolean = false): Promise<{ success: boolean; message: string }> => {
-    if (isSyncingRef.current) return { success: true, message: 'Sinkronisasi sedang berjalan...' };
-    isSyncingRef.current = true;
-    if (!silent) setSyncStatus('syncing');
-
-    try {
-      const res = await fetch('/api/data');
-      if (!res.ok) {
-        if (!silent) setSyncStatus('offline');
-        isSyncingRef.current = false;
-        return { success: false, message: 'Server penyimpanan belum aktif atau offline.' };
-      }
-
-      const json = await res.json();
-      if (json.success && json.data) {
-        const d = json.data;
-        if (Array.isArray(d.users) && d.users.length > 0) {
-          setUsers(d.users);
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(d.users));
-        }
-        if (Array.isArray(d.products)) {
-          setProducts(d.products);
-          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(d.products));
-        }
-        if (Array.isArray(d.transactions)) {
-          setTransactions(d.transactions);
-          localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(d.transactions));
-        }
-        if (Array.isArray(d.stockPurchases)) {
-          setStockPurchases(d.stockPurchases);
-          localStorage.setItem(STORAGE_KEYS.STOCK_PURCHASES, JSON.stringify(d.stockPurchases));
-        }
-        if (d.settings && d.settings.storeName) {
-          setSettings(d.settings);
-          localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(d.settings));
-        }
-
-        setSyncStatus('synced');
-        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
-        initialServerLoadedRef.current = true;
-        isSyncingRef.current = false;
-        return { success: true, message: 'Data toko berhasil disinkronkan dari server AFSTORE!' };
-      }
-    } catch {
-      if (!silent) setSyncStatus('offline');
-    }
-
-    isSyncingRef.current = false;
-    return { success: false, message: 'Gagal menyinkronkan data dari server.' };
-  };
-
-  // Initial pull on mount, window focus, visibility change, and periodic sync (every 8s)
+  // 2. Real-time Firestore sync when authenticated
   useEffect(() => {
-    syncWithServer(true);
+    if (!firebaseUser) {
+      setSyncStatus('offline');
+      return;
+    }
 
-    const handleFocus = () => {
-      syncWithServer(true);
-    };
+    setSyncStatus('syncing');
 
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') {
-        syncWithServer(true);
+    // Subscribe to products collection
+    const unsubProducts = onSnapshot(
+      collection(db, 'products'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const prods: Product[] = [];
+          snapshot.forEach((docSnap) => {
+            prods.push(docSnap.data() as Product);
+          });
+          setProducts(prods);
+          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(prods));
+        } else if (!isSeedingRef.current) {
+          seedInitialData();
+        }
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      },
+      (error) => {
+        setSyncStatus('error');
+        handleFirestoreError(error, OperationType.GET, 'products');
       }
-    };
+    );
 
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibility);
+    // Subscribe to transactions collection
+    const unsubTransactions = onSnapshot(
+      collection(db, 'transactions'),
+      (snapshot) => {
+        const txs: Transaction[] = [];
+        snapshot.forEach((docSnap) => {
+          txs.push(docSnap.data() as Transaction);
+        });
+        txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setTransactions(txs);
+        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(txs));
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      },
+      (error) => {
+        setSyncStatus('error');
+        handleFirestoreError(error, OperationType.GET, 'transactions');
+      }
+    );
 
-    const interval = setInterval(() => {
-      syncWithServer(true);
-    }, 8000);
+    // Subscribe to stockPurchases collection
+    const unsubStockPurchases = onSnapshot(
+      collection(db, 'stockPurchases'),
+      (snapshot) => {
+        const sps: StockPurchase[] = [];
+        snapshot.forEach((docSnap) => {
+          sps.push(docSnap.data() as StockPurchase);
+        });
+        sps.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setStockPurchases(sps);
+        localStorage.setItem(STORAGE_KEYS.STOCK_PURCHASES, JSON.stringify(sps));
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      },
+      (error) => {
+        setSyncStatus('error');
+        handleFirestoreError(error, OperationType.GET, 'stockPurchases');
+      }
+    );
+
+    // Subscribe to settings document
+    const unsubSettings = onSnapshot(
+      doc(db, 'settings', 'store'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const storeData = docSnap.data() as StoreSettings;
+          setSettings(storeData);
+          localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(storeData));
+        } else {
+          setDoc(doc(db, 'settings', 'store'), INITIAL_SETTINGS).catch(() => {});
+        }
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      },
+      (error) => {
+        setSyncStatus('error');
+        handleFirestoreError(error, OperationType.GET, 'settings/store');
+      }
+    );
+
+    // Subscribe to userAccounts collection
+    const unsubUsers = onSnapshot(
+      collection(db, 'userAccounts'),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const us: UserAccount[] = [];
+          snapshot.forEach((docSnap) => {
+            us.push(docSnap.data() as UserAccount);
+          });
+          setUsers(us);
+          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(us));
+        }
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      },
+      (error) => {
+        setSyncStatus('error');
+        handleFirestoreError(error, OperationType.GET, 'userAccounts');
+      }
+    );
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibility);
-      clearInterval(interval);
+      unsubProducts();
+      unsubTransactions();
+      unsubStockPurchases();
+      unsubSettings();
+      unsubUsers();
     };
-  }, []);
+  }, [firebaseUser]);
 
-  // Save to localStorage whenever local states change
-  useEffect(() => {
+  // Seed initial data to Firestore if remote is blank
+  const seedInitialData = async () => {
+    if (isSeedingRef.current) return;
+    isSeedingRef.current = true;
     try {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-    } catch {}
-  }, [users]);
+      for (const prod of INITIAL_PRODUCTS) {
+        await setDoc(doc(db, 'products', prod.id), prod);
+      }
+      await setDoc(doc(db, 'settings', 'store'), INITIAL_SETTINGS);
+      for (const user of INITIAL_USERS) {
+        await setDoc(doc(db, 'userAccounts', user.id), user);
+      }
+      for (const tx of INITIAL_TRANSACTIONS) {
+        await setDoc(doc(db, 'transactions', tx.id), tx);
+      }
+      for (const sp of INITIAL_STOCK_PURCHASES) {
+        await setDoc(doc(db, 'stockPurchases', sp.id), sp);
+      }
+    } catch (e) {
+      console.warn('Seeding initial data:', e);
+    } finally {
+      isSeedingRef.current = false;
+    }
+  };
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
-    } catch {}
-  }, [products]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(transactions));
-    } catch {}
-  }, [transactions]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.STOCK_PURCHASES, JSON.stringify(stockPurchases));
-    } catch {}
-  }, [stockPurchases]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
-    } catch {}
-  }, [settings]);
-
+  // Keep local storage synced for offline fallback
   useEffect(() => {
     try {
       if (currentUser) {
@@ -356,71 +366,40 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {}
   }, [currentUser]);
 
-  // Export complete JSON backup for manual multi-device / Vercel transfer
-  const exportBackupData = () => {
-    const backupObj = {
-      appName: 'AFSTORE POS',
-      version: '1.0',
-      exportedAt: new Date().toISOString(),
-      storeName: settings.storeName,
-      users,
-      products,
-      transactions,
-      stockPurchases,
-      settings,
-    };
-    const jsonStr = JSON.stringify(backupObj, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `AFSTORE_BACKUP_${new Date().toISOString().split('T')[0]}_${Date.now().toString().slice(-4)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    sound.playSuccess(settings.enableSound);
-  };
-
-  // Import JSON backup
-  const importBackupData = async (data: any): Promise<{ success: boolean; message: string }> => {
+  // Google Sign In
+  const signInWithGoogle = async (): Promise<{ success: boolean; message: string }> => {
     try {
-      if (!data || typeof data !== 'object') {
-        return { success: false, message: 'Format file cadangan tidak valid.' };
-      }
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      const isSuper = user.email?.toLowerCase() === 'affan.yusuf192@guru.smp.belajar.id';
 
-      const newUsers = Array.isArray(data.users) && data.users.length > 0 ? data.users : users;
-      const newProducts = Array.isArray(data.products) ? data.products : products;
-      const newTransactions = Array.isArray(data.transactions) ? data.transactions : transactions;
-      const newStockPurchases = Array.isArray(data.stockPurchases) ? data.stockPurchases : stockPurchases;
-      const newSettings = data.settings && typeof data.settings === 'object' ? data.settings : settings;
+      const account: UserAccount = {
+        id: user.uid,
+        username: (user.email?.split('@')[0] || 'google_user').toLowerCase(),
+        password: '',
+        fullName: user.displayName || (isSuper ? 'AFFAN YUSUF (Super Admin)' : 'Anggota Kasir'),
+        role: isSuper ? 'super_admin' : 'anggota',
+        phone: '-',
+        email: user.email || undefined,
+        avatarColor: isSuper ? 'bg-indigo-600' : 'bg-emerald-600',
+        createdAt: new Date().toISOString(),
+        status: 'active'
+      };
 
-      setUsers(newUsers);
-      setProducts(newProducts);
-      setTransactions(newTransactions);
-      setStockPurchases(newStockPurchases);
-      setSettings(newSettings);
-
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(newUsers));
-      localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(newProducts));
-      localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(newTransactions));
-      localStorage.setItem(STORAGE_KEYS.STOCK_PURCHASES, JSON.stringify(newStockPurchases));
-      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
-
-      await pushToServer({
-        users: newUsers,
-        products: newProducts,
-        transactions: newTransactions,
-        stockPurchases: newStockPurchases,
-        settings: newSettings,
-      });
-
+      setCurrentUser(account);
       sound.playSuccess(settings.enableSound);
-      return { success: true, message: 'Data cadangan berhasil dipulihkan dan disinkronkan ke server!' };
-    } catch (err: any) {
-      return { success: false, message: 'Gagal memulihkan cadangan: ' + err.message };
+      return { 
+        success: true, 
+        message: `Berhasil terhubung ke Firebase dengan akun Google: ${user.email} (${account.role === 'super_admin' ? 'Super Admin' : 'Anggota Kasir'})` 
+      };
+    } catch (error: any) {
+      console.error('Google Sign In Error:', error);
+      return { success: false, message: error.message || 'Gagal masuk dengan akun Google.' };
     }
   };
 
-  // Login handler
+  // Standard username & password login
   const login = (username: string, pass: string, requiredRole: UserRole): { success: boolean; message: string } => {
     const trimmedUsername = username.trim().toLowerCase();
     const found = users.find(u => u.username.toLowerCase() === trimmedUsername);
@@ -450,10 +429,116 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: `Selamat datang kembali, ${found.fullName}!` };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch {}
     setCurrentUser(null);
     setCart([]);
     sound.playClick(settings.enableSound);
+  };
+
+  // Sync manually with Firestore
+  const syncWithServer = async (silent: boolean = false): Promise<{ success: boolean; message: string }> => {
+    if (!firebaseUser) {
+      if (!silent) setSyncStatus('offline');
+      return { success: false, message: 'Masuk dengan Akun Google terlebih dahulu untuk menghubungkan Firebase.' };
+    }
+
+    try {
+      if (!silent) setSyncStatus('syncing');
+      const prodSnap = await getDocs(collection(db, 'products'));
+      const prods: Product[] = [];
+      prodSnap.forEach(d => prods.push(d.data() as Product));
+      if (prods.length > 0) setProducts(prods);
+
+      const txSnap = await getDocs(collection(db, 'transactions'));
+      const txs: Transaction[] = [];
+      txSnap.forEach(d => txs.push(d.data() as Transaction));
+      txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setTransactions(txs);
+
+      const spSnap = await getDocs(collection(db, 'stockPurchases'));
+      const sps: StockPurchase[] = [];
+      spSnap.forEach(d => sps.push(d.data() as StockPurchase));
+      sps.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      setStockPurchases(sps);
+
+      const setSnap = await getDoc(doc(db, 'settings', 'store'));
+      if (setSnap.exists()) setSettings(setSnap.data() as StoreSettings);
+
+      setSyncStatus('synced');
+      setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      return { success: true, message: 'Semua data toko berhasil disinkronkan langsung dari Firebase Firestore!' };
+    } catch (err: any) {
+      setSyncStatus('error');
+      handleFirestoreError(err, OperationType.GET, 'sync');
+      return { success: false, message: 'Gagal menyinkronkan: ' + err.message };
+    }
+  };
+
+  // JSON Export / Backup
+  const exportBackupData = () => {
+    const backupObj = {
+      appName: 'AFSTORE POS',
+      version: '2.0',
+      firebaseSynced: !!firebaseUser,
+      exportedAt: new Date().toISOString(),
+      storeName: settings.storeName,
+      users,
+      products,
+      transactions,
+      stockPurchases,
+      settings,
+    };
+    const jsonStr = JSON.stringify(backupObj, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `AFSTORE_FIREBASE_BACKUP_${new Date().toISOString().split('T')[0]}_${Date.now().toString().slice(-4)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    sound.playSuccess(settings.enableSound);
+  };
+
+  // JSON Import
+  const importBackupData = async (data: any): Promise<{ success: boolean; message: string }> => {
+    try {
+      if (!data || typeof data !== 'object') {
+        return { success: false, message: 'Format file cadangan tidak valid.' };
+      }
+
+      const newUsers = Array.isArray(data.users) && data.users.length > 0 ? data.users : users;
+      const newProducts = Array.isArray(data.products) ? data.products : products;
+      const newTransactions = Array.isArray(data.transactions) ? data.transactions : transactions;
+      const newStockPurchases = Array.isArray(data.stockPurchases) ? data.stockPurchases : stockPurchases;
+      const newSettings = data.settings && typeof data.settings === 'object' ? data.settings : settings;
+
+      setUsers(newUsers);
+      setProducts(newProducts);
+      setTransactions(newTransactions);
+      setStockPurchases(newStockPurchases);
+      setSettings(newSettings);
+
+      if (firebaseUser) {
+        for (const p of newProducts) {
+          setDoc(doc(db, 'products', p.id), p).catch(e => handleFirestoreError(e, OperationType.WRITE, `products/${p.id}`));
+        }
+        for (const t of newTransactions) {
+          setDoc(doc(db, 'transactions', t.id), t).catch(e => handleFirestoreError(e, OperationType.WRITE, `transactions/${t.id}`));
+        }
+        for (const sp of newStockPurchases) {
+          setDoc(doc(db, 'stockPurchases', sp.id), sp).catch(e => handleFirestoreError(e, OperationType.WRITE, `stockPurchases/${sp.id}`));
+        }
+        setDoc(doc(db, 'settings', 'store'), newSettings).catch(e => handleFirestoreError(e, OperationType.WRITE, 'settings/store'));
+      }
+
+      sound.playSuccess(settings.enableSound);
+      return { success: true, message: 'Data cadangan berhasil dipulihkan dan disinkronkan ke Firebase!' };
+    } catch (err: any) {
+      return { success: false, message: 'Gagal memulihkan cadangan: ' + err.message };
+    }
   };
 
   // Member Management
@@ -469,9 +554,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: new Date().toISOString(),
     };
 
-    const nextUsers = [...users, newUser];
-    setUsers(nextUsers);
-    pushToServer({ users: nextUsers });
+    setUsers(prev => [...prev, newUser]);
+    if (firebaseUser) {
+      setDoc(doc(db, 'userAccounts', newUser.id), newUser).catch(e => 
+        handleFirestoreError(e, OperationType.CREATE, `userAccounts/${newUser.id}`)
+      );
+    }
     sound.playSuccess(settings.enableSound);
     return { success: true, message: `Akun anggota "${newUser.fullName}" berhasil ditambahkan.` };
   };
@@ -484,31 +572,31 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
-    const nextUsers = users.map(u => (u.id === id ? { ...u, ...updates } : u));
-    setUsers(nextUsers);
-    pushToServer({ users: nextUsers });
-
+    setUsers(prev => prev.map(u => (u.id === id ? { ...u, ...updates } : u)));
     if (currentUser?.id === id) {
       setCurrentUser(prev => (prev ? { ...prev, ...updates } : null));
     }
 
+    if (firebaseUser) {
+      updateDoc(doc(db, 'userAccounts', id), updates).catch(e => 
+        handleFirestoreError(e, OperationType.UPDATE, `userAccounts/${id}`)
+      );
+    }
     sound.playSuccess(settings.enableSound);
     return { success: true, message: 'Data akun berhasil diperbarui.' };
   };
 
   const deleteUser = (id: string): { success: boolean; message: string } => {
     const target = users.find(u => u.id === id);
-    if (!target) {
-      return { success: false, message: 'Akun tidak ditemukan.' };
-    }
+    if (!target) return { success: false, message: 'Akun tidak ditemukan.' };
+    if (target.role === 'super_admin') return { success: false, message: 'Akun Super Admin tidak dapat dihapus.' };
 
-    if (target.role === 'super_admin') {
-      return { success: false, message: 'Akun Super Admin utama tidak dapat dihapus.' };
+    setUsers(prev => prev.filter(u => u.id !== id));
+    if (firebaseUser) {
+      deleteDoc(doc(db, 'userAccounts', id)).catch(e => 
+        handleFirestoreError(e, OperationType.DELETE, `userAccounts/${id}`)
+      );
     }
-
-    const nextUsers = users.filter(u => u.id !== id);
-    setUsers(nextUsers);
-    pushToServer({ users: nextUsers });
     sound.playClick(settings.enableSound);
     return { success: true, message: `Akun "${target.fullName}" berhasil dihapus.` };
   };
@@ -520,7 +608,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return { success: false, message: `Kode / Barcode "${codeClean}" sudah digunakan barang lain.` };
     }
 
-    // Bulatkan harga jual dan modal ke kelipatan bulat
     const roundedPrice = Math.max(0, Math.round(productData.price));
     const roundedCost = Math.max(0, Math.round(productData.costPrice || 0));
 
@@ -532,9 +619,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       updatedAt: new Date().toISOString(),
     };
 
-    const nextProducts = [newProduct, ...products];
-    setProducts(nextProducts);
-    pushToServer({ products: nextProducts });
+    setProducts(prev => [newProduct, ...prev]);
+    if (firebaseUser) {
+      setDoc(doc(db, 'products', newProduct.id), newProduct).catch(e => 
+        handleFirestoreError(e, OperationType.CREATE, `products/${newProduct.id}`)
+      );
+    }
     sound.playSuccess(settings.enableSound);
     return { success: true, message: `Barang "${newProduct.name}" berhasil ditambahkan.` };
   };
@@ -548,65 +638,63 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
-    const nextProducts = products.map(p => {
-      if (p.id === id) {
-        const updated = { ...p, ...updates, updatedAt: new Date().toISOString() };
-        if (updated.price !== undefined) {
-          updated.price = Math.max(0, Math.round(updated.price));
-        }
-        if (updated.costPrice !== undefined) {
-          updated.costPrice = Math.max(0, Math.round(updated.costPrice));
-        }
-        return updated;
-      }
-      return p;
-    });
+    const cleanUpdates = { ...updates, updatedAt: new Date().toISOString() };
+    if (cleanUpdates.price !== undefined) cleanUpdates.price = Math.max(0, Math.round(cleanUpdates.price));
+    if (cleanUpdates.costPrice !== undefined) cleanUpdates.costPrice = Math.max(0, Math.round(cleanUpdates.costPrice));
 
-    setProducts(nextProducts);
-    pushToServer({ products: nextProducts });
+    setProducts(prev => prev.map(p => (p.id === id ? { ...p, ...cleanUpdates } : p)));
+
+    if (firebaseUser) {
+      updateDoc(doc(db, 'products', id), cleanUpdates).catch(e => 
+        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
+      );
+    }
     sound.playSuccess(settings.enableSound);
     return { success: true, message: 'Data barang berhasil diperbarui.' };
   };
 
   const deleteProduct = (id: string): { success: boolean; message: string } => {
     const target = products.find(p => p.id === id);
-    if (!target) {
-      return { success: false, message: 'Barang tidak ditemukan.' };
-    }
+    if (!target) return { success: false, message: 'Barang tidak ditemukan.' };
 
-    const nextProducts = products.filter(p => p.id !== id);
-    setProducts(nextProducts);
-    pushToServer({ products: nextProducts });
+    setProducts(prev => prev.filter(p => p.id !== id));
     setCart(prev => prev.filter(c => c.product.id !== id));
+
+    if (firebaseUser) {
+      deleteDoc(doc(db, 'products', id)).catch(e => 
+        handleFirestoreError(e, OperationType.DELETE, `products/${id}`)
+      );
+    }
     sound.playClick(settings.enableSound);
     return { success: true, message: `Barang "${target.name}" berhasil dihapus.` };
   };
 
   const adjustStock = (id: string, deltaAmount: number) => {
-    const nextProducts = products.map(p => {
-      if (p.id === id) {
-        const newStock = Math.max(0, p.stock + deltaAmount);
-        return { ...p, stock: newStock, updatedAt: new Date().toISOString() };
-      }
-      return p;
-    });
-    setProducts(nextProducts);
-    pushToServer({ products: nextProducts });
+    const target = products.find(p => p.id === id);
+    if (!target) return;
+    const newStock = Math.max(0, target.stock + deltaAmount);
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock, updatedAt: new Date().toISOString() } : p));
+
+    if (firebaseUser) {
+      updateDoc(doc(db, 'products', id), { stock: newStock, updatedAt: new Date().toISOString() }).catch(e => 
+        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
+      );
+    }
     sound.playClick(settings.enableSound);
   };
 
   const updateProductStock = (id: string, newStock: number): { success: boolean; message: string } => {
     const target = products.find(p => p.id === id);
-    if (!target) {
-      return { success: false, message: 'Barang tidak ditemukan.' };
-    }
+    if (!target) return { success: false, message: 'Barang tidak ditemukan.' };
 
     const validStock = Math.max(0, Math.round(newStock));
-    const nextProducts = products.map(p =>
-      p.id === id ? { ...p, stock: validStock, updatedAt: new Date().toISOString() } : p
-    );
-    setProducts(nextProducts);
-    pushToServer({ products: nextProducts });
+    setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: validStock, updatedAt: new Date().toISOString() } : p));
+
+    if (firebaseUser) {
+      updateDoc(doc(db, 'products', id), { stock: validStock, updatedAt: new Date().toISOString() }).catch(e => 
+        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
+      );
+    }
     sound.playSuccess(settings.enableSound);
     return { success: true, message: `Stok "${target.name}" berhasil diubah menjadi ${validStock} ${target.unit}.` };
   };
@@ -617,9 +705,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
         const newQty = existing.quantity + quantity;
-        return prev.map(item =>
-          item.product.id === product.id ? { ...item, quantity: newQty } : item
-        );
+        return prev.map(item => item.product.id === product.id ? { ...item, quantity: newQty } : item);
       } else {
         return [...prev, { product, quantity }];
       }
@@ -632,9 +718,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       removeFromCart(productId);
       return;
     }
-    setCart(prev =>
-      prev.map(item => (item.product.id === productId ? { ...item, quantity } : item))
-    );
+    setCart(prev => prev.map(item => item.product.id === productId ? { ...item, quantity } : item));
     sound.playClick(settings.enableSound);
   };
 
@@ -648,7 +732,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     sound.playClick(settings.enableSound);
   };
 
-  // Checkout
+  // Checkout & Transactions
   const completeTransaction = (data: {
     paymentMethod: 'cash' | 'qris' | 'debit' | 'transfer';
     cashGiven: number;
@@ -656,13 +740,8 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     customerName?: string;
     note?: string;
   }): { success: boolean; transaction?: Transaction; error?: string } => {
-    if (cart.length === 0) {
-      return { success: false, error: 'Keranjang belanja masih kosong.' };
-    }
-
-    if (!currentUser) {
-      return { success: false, error: 'Sesi login tidak aktif. Silakan login kembali.' };
-    }
+    if (cart.length === 0) return { success: false, error: 'Keranjang belanja masih kosong.' };
+    if (!currentUser) return { success: false, error: 'Sesi login kasir tidak aktif.' };
 
     const subtotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
     const discount = data.discountAmount || 0;
@@ -671,10 +750,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const total = taxableAmount + tax;
 
     if (data.paymentMethod === 'cash' && data.cashGiven < total) {
-      return {
-        success: false,
-        error: `Uang pembayaran kurang! Total belanja: Rp ${total.toLocaleString('id-ID')}`,
-      };
+      return { success: false, error: `Uang pembayaran kurang! Total belanja: Rp ${total.toLocaleString('id-ID')}` };
     }
 
     const change = data.paymentMethod === 'cash' ? Math.max(0, data.cashGiven - total) : 0;
@@ -684,7 +760,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }, 0) - discount;
 
     const receiptNumber = generateReceiptNumber();
-
     const transactionItems = cart.map(item => ({
       productId: item.product.id,
       code: item.product.code,
@@ -716,8 +791,8 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       note: data.note?.trim() || undefined,
     };
 
-    // Deduct stock for each product
-    const nextProducts = products.map(p => {
+    // Calculate deducted stocks
+    const updatedProducts = products.map(p => {
       const boughtItem = cart.find(ci => ci.product.id === p.id);
       if (boughtItem) {
         return {
@@ -729,55 +804,72 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return p;
     });
 
-    const nextTransactions = [newTransaction, ...transactions];
-    setProducts(nextProducts);
-    setTransactions(nextTransactions);
+    setProducts(updatedProducts);
+    setTransactions(prev => [newTransaction, ...prev]);
+    const cartCopy = [...cart];
     setCart([]);
 
-    pushToServer({ products: nextProducts, transactions: nextTransactions });
-    sound.playSuccess(settings.enableSound);
+    if (firebaseUser) {
+      setDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(e => 
+        handleFirestoreError(e, OperationType.CREATE, `transactions/${newTransaction.id}`)
+      );
+      for (const ci of cartCopy) {
+        const matched = updatedProducts.find(p => p.id === ci.product.id);
+        if (matched) {
+          updateDoc(doc(db, 'products', matched.id), { 
+            stock: matched.stock, 
+            updatedAt: new Date().toISOString() 
+          }).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
+        }
+      }
+    }
 
-    return {
-      success: true,
-      transaction: newTransaction,
-    };
+    sound.playSuccess(settings.enableSound);
+    return { success: true, transaction: newTransaction };
   };
 
   const deleteTransaction = (id: string, restoreStock: boolean = false): { success: boolean; message: string } => {
     const target = transactions.find(t => t.id === id);
-    if (!target) {
-      return { success: false, message: 'Transaksi tidak ditemukan.' };
-    }
+    if (!target) return { success: false, message: 'Transaksi tidak ditemukan.' };
 
-    let nextProducts = products;
+    let updatedProducts = products;
     if (restoreStock && target.items) {
-      nextProducts = products.map(p => {
+      updatedProducts = products.map(p => {
         const item = target.items.find(i => i.productId === p.id);
         if (item) {
-          return {
-            ...p,
-            stock: p.stock + item.quantity,
-            updatedAt: new Date().toISOString(),
-          };
+          return { ...p, stock: p.stock + item.quantity, updatedAt: new Date().toISOString() };
         }
         return p;
       });
-      setProducts(nextProducts);
+      setProducts(updatedProducts);
     }
 
-    const nextTransactions = transactions.filter(t => t.id !== id);
-    setTransactions(nextTransactions);
-    pushToServer({ products: nextProducts, transactions: nextTransactions });
+    setTransactions(prev => prev.filter(t => t.id !== id));
+
+    if (firebaseUser) {
+      deleteDoc(doc(db, 'transactions', id)).catch(e => 
+        handleFirestoreError(e, OperationType.DELETE, `transactions/${id}`)
+      );
+      if (restoreStock && target.items) {
+        for (const item of target.items) {
+          const matched = updatedProducts.find(p => p.id === item.productId);
+          if (matched) {
+            updateDoc(doc(db, 'products', matched.id), { 
+              stock: matched.stock, 
+              updatedAt: new Date().toISOString() 
+            }).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
+          }
+        }
+      }
+    }
 
     sound.playClick(settings.enableSound);
     return { success: true, message: `Struk "${target.receiptNumber}" berhasil dihapus dari riwayat transaksi.` };
   };
 
-  // Stock Purchase methods (Update Stok Barang: Nominal Belanja, Tanggal, Keterangan)
+  // Stock Purchase methods
   const addStockPurchase = (data: { date: string; amount: number; description: string }): { success: boolean; message: string } => {
-    if (data.amount <= 0) {
-      return { success: false, message: 'Nominal belanja harus lebih dari Rp 0.' };
-    }
+    if (data.amount <= 0) return { success: false, message: 'Nominal belanja harus lebih dari Rp 0.' };
     const cleanDesc = data.description?.trim() || 'Belanja stok barang';
     const cleanDate = data.date?.trim() || new Date().toISOString().split('T')[0];
     const roundedAmount = Math.max(0, Math.round(data.amount));
@@ -790,60 +882,69 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       createdAt: new Date().toISOString(),
     };
 
-    const nextPurchases = [newPurchase, ...stockPurchases];
-    setStockPurchases(nextPurchases);
-    pushToServer({ stockPurchases: nextPurchases });
+    setStockPurchases(prev => [newPurchase, ...prev]);
+
+    if (firebaseUser) {
+      setDoc(doc(db, 'stockPurchases', newPurchase.id), newPurchase).catch(e => 
+        handleFirestoreError(e, OperationType.CREATE, `stockPurchases/${newPurchase.id}`)
+      );
+    }
     sound.playSuccess(settings.enableSound);
     return { success: true, message: 'Catatan belanja stok barang berhasil ditambahkan.' };
   };
 
   const updateStockPurchase = (id: string, data: { date: string; amount: number; description: string }): { success: boolean; message: string } => {
     const target = stockPurchases.find(sp => sp.id === id);
-    if (!target) {
-      return { success: false, message: 'Data belanja stok tidak ditemukan.' };
-    }
-    if (data.amount <= 0) {
-      return { success: false, message: 'Nominal belanja harus lebih dari Rp 0.' };
-    }
+    if (!target) return { success: false, message: 'Data belanja stok tidak ditemukan.' };
+    if (data.amount <= 0) return { success: false, message: 'Nominal belanja harus lebih dari Rp 0.' };
 
     const roundedAmount = Math.max(0, Math.round(data.amount));
-    const nextPurchases = stockPurchases.map(sp =>
-      sp.id === id
-        ? {
-            ...sp,
-            date: data.date.trim() || sp.date,
-            amount: roundedAmount,
-            description: data.description.trim() || sp.description,
-          }
-        : sp
-    );
+    const updates = {
+      date: data.date.trim() || target.date,
+      amount: roundedAmount,
+      description: data.description.trim() || target.description,
+    };
 
-    setStockPurchases(nextPurchases);
-    pushToServer({ stockPurchases: nextPurchases });
+    setStockPurchases(prev => prev.map(sp => sp.id === id ? { ...sp, ...updates } : sp));
+
+    if (firebaseUser) {
+      updateDoc(doc(db, 'stockPurchases', id), updates).catch(e => 
+        handleFirestoreError(e, OperationType.UPDATE, `stockPurchases/${id}`)
+      );
+    }
     sound.playSuccess(settings.enableSound);
     return { success: true, message: 'Catatan belanja stok barang berhasil diperbarui.' };
   };
 
   const deleteStockPurchase = (id: string): { success: boolean; message: string } => {
     const target = stockPurchases.find(sp => sp.id === id);
-    if (!target) {
-      return { success: false, message: 'Data belanja stok tidak ditemukan.' };
-    }
+    if (!target) return { success: false, message: 'Data belanja stok tidak ditemukan.' };
 
-    const nextPurchases = stockPurchases.filter(sp => sp.id !== id);
-    setStockPurchases(nextPurchases);
-    pushToServer({ stockPurchases: nextPurchases });
+    setStockPurchases(prev => prev.filter(sp => sp.id !== id));
+
+    if (firebaseUser) {
+      deleteDoc(doc(db, 'stockPurchases', id)).catch(e => 
+        handleFirestoreError(e, OperationType.DELETE, `stockPurchases/${id}`)
+      );
+    }
     sound.playClick(settings.enableSound);
     return { success: true, message: 'Catatan belanja stok barang berhasil dihapus.' };
   };
 
+  // Settings
   const updateSettings = (newSettings: Partial<StoreSettings>) => {
     const nextSettings = { ...settings, ...newSettings };
     setSettings(nextSettings);
-    pushToServer({ settings: nextSettings });
+
+    if (firebaseUser) {
+      setDoc(doc(db, 'settings', 'store'), nextSettings, { merge: true }).catch(e => 
+        handleFirestoreError(e, OperationType.UPDATE, 'settings/store')
+      );
+    }
     sound.playClick(settings.enableSound);
   };
 
+  // Reset
   const resetAllData = () => {
     setUsers(INITIAL_USERS);
     setProducts(INITIAL_PRODUCTS);
@@ -857,7 +958,9 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     localStorage.removeItem(STORAGE_KEYS.STOCK_PURCHASES);
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
 
-    fetch('/api/reset', { method: 'POST' }).catch(() => {});
+    if (firebaseUser) {
+      seedInitialData().catch(e => console.error('Reset initial data error:', e));
+    }
     sound.playSuccess(settings.enableSound);
   };
 
@@ -865,6 +968,8 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     <PosContext.Provider
       value={{
         currentUser,
+        firebaseUser,
+        isAuthReady,
         users,
         products,
         cart,
@@ -878,6 +983,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         syncWithServer,
         exportBackupData,
         importBackupData,
+        signInWithGoogle,
         login,
         logout,
         addUser,

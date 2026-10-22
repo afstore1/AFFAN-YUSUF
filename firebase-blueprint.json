@@ -1,0 +1,118 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "Product catalog item in POS inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "price": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "stock": { "type": "number" },
+        "unit": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "minStockAlert": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "category", "price", "costPrice", "stock", "unit", "minStockAlert"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "POS sales transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "receiptNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "cashierId": { "type": "string" },
+        "cashierName": { "type": "string" },
+        "cashierRole": { "type": "string", "enum": ["super_admin", "anggota"] },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "discount": { "type": "number" },
+        "tax": { "type": "number" },
+        "total": { "type": "number" },
+        "totalProfit": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["cash", "qris", "debit", "transfer"] },
+        "cashGiven": { "type": "number" },
+        "change": { "type": "number" },
+        "customerName": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "required": ["id", "receiptNumber", "date", "cashierId", "cashierName", "cashierRole", "items", "subtotal", "discount", "tax", "total", "totalProfit", "paymentMethod", "cashGiven", "change"]
+    },
+    "StockPurchase": {
+      "title": "StockPurchase",
+      "description": "Stock purchase expense log for restocking inventory",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "date", "amount", "description", "createdAt"]
+    },
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Store configuration and receipt preferences",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "storeAddress": { "type": "string" },
+        "storePhone": { "type": "string" },
+        "storeLogoUrl": { "type": "string" },
+        "footerMessage": { "type": "string" },
+        "enableSound": { "type": "boolean" },
+        "enableTax": { "type": "boolean" },
+        "taxRatePercent": { "type": "number" }
+      },
+      "required": ["storeName", "storeAddress", "storePhone", "footerMessage", "enableSound", "enableTax", "taxRatePercent"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "POS application user credentials and role assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["super_admin", "anggota"] },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] }
+      },
+      "required": ["id", "username", "password", "fullName", "role", "phone", "avatarColor", "createdAt", "status"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Store inventory items"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Completed sales transactions and receipts"
+    },
+    "/stockPurchases/{purchaseId}": {
+      "schema": "StockPurchase",
+      "description": "Stock purchase expenditures deducted from net profit"
+    },
+    "/settings/{settingId}": {
+      "schema": "StoreSettings",
+      "description": "Store business settings and custom logo"
+    },
+    "/userAccounts/{userId}": {
+      "schema": "UserAccount",
+      "description": "Registered cashier and super admin staff accounts"
+    }
+  }
+}

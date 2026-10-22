@@ -27,7 +27,8 @@ export const Navbar: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettin
     users,
     syncStatus,
     lastSyncTime,
-    syncWithServer
+    syncWithServer,
+    firebaseUser
   } = usePos();
   const [currentTime, setCurrentTime] = useState<string>('');
 
@@ -149,17 +150,15 @@ export const Navbar: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettin
 
           {/* Right Section: Cloud Sync, Clock, Sound, User info, Logout */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-            {/* Multi-Account Cloud Sync Button */}
+            {/* Firebase Multi-Account Cloud Sync Button */}
             <button
               type="button"
               onClick={() => syncWithServer(false)}
-              title={`Sinkronisasi Multi-Akun Cloud: ${
-                syncStatus === 'synced'
-                  ? `Tersinkron (Terakhir: ${lastSyncTime || 'Baru saja'})`
-                  : syncStatus === 'syncing'
-                  ? 'Sedang menyinkronkan data antar akun...'
-                  : 'Server siap / tersimpan lokal'
-              }. Klik untuk sinkronkan data sekarang.`}
+              title={
+                firebaseUser
+                  ? `Firebase Firestore Terhubung (${firebaseUser.email || 'Akun Google'}). Terakhir sinkron: ${lastSyncTime || 'Baru saja'}. Klik untuk sinkron ulang.`
+                  : 'Firebase belum terhubung. Klik untuk sinkronisasi.'
+              }
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs transition cursor-pointer ${
                 syncStatus === 'synced'
                   ? 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/50'
@@ -170,7 +169,7 @@ export const Navbar: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettin
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin text-amber-400' : 'text-emerald-400'}`} />
               <span className="hidden md:inline font-medium text-[11px]">
-                {syncStatus === 'synced' ? 'Cloud Aktif' : syncStatus === 'syncing' ? 'Sinkron...' : 'Sinkron'}
+                {syncStatus === 'synced' ? 'Firebase Aktif' : syncStatus === 'syncing' ? 'Sinkron...' : 'Firebase'}
               </span>
             </button>
 

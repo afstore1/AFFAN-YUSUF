@@ -10,11 +10,13 @@ import {
   Store, 
   Lock, 
   User, 
-  AlertCircle
+  AlertCircle,
+  CloudCheck,
+  Sparkles
 } from 'lucide-react';
 
 export const LoginView: React.FC = () => {
-  const { login, settings } = usePos();
+  const { login, signInWithGoogle, settings, syncStatus, firebaseUser } = usePos();
 
   // Active login tab: 'super_admin' or 'anggota'
   const [selectedRole, setSelectedRole] = useState<UserRole>('super_admin');
@@ -26,19 +28,41 @@ export const LoginView: React.FC = () => {
   
   // State for status feedback
   const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   // Switch role tab and clear inputs
   const handleSelectRole = (role: UserRole) => {
     setSelectedRole(role);
     setErrorMsg('');
+    setSuccessMsg('');
     setUsername('');
     setPassword('');
+  };
+
+  const handleGoogleLogin = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setIsGoogleLoading(true);
+    try {
+      const res = await signInWithGoogle();
+      if (!res.success) {
+        setErrorMsg(res.message);
+      } else {
+        setSuccessMsg(res.message);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal masuk dengan Google.');
+    } finally {
+      setIsGoogleLoading(false);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
 
     if (!username.trim()) {
       setErrorMsg('Mohon masukkan Username Anda.');
@@ -63,10 +87,10 @@ export const LoginView: React.FC = () => {
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 sm:p-6 relative overflow-hidden">
       {/* Background ambient lighting */}
       <div className="absolute top-1/4 -left-20 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
 
       {/* Header Brand */}
-      <div className="text-center mb-8 relative z-10">
+      <div className="text-center mb-6 relative z-10">
         <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl mb-3">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-lg shadow-emerald-500/20 font-bold text-xl overflow-hidden">
             {settings.storeLogoUrl ? (
@@ -86,19 +110,72 @@ export const LoginView: React.FC = () => {
             <p className="text-xs text-slate-400">Sistem Kasir & Manajemen Toko Terpadu</p>
           </div>
         </div>
-        <p className="text-slate-400 text-sm max-w-md mx-auto">
-          Silakan masukkan username dan password untuk mengakses sistem kasir
-        </p>
+
+        {/* Cloud Firebase Sync Badge */}
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-xs shadow-inner">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <CloudCheck className="w-3.5 h-3.5" />
+          <span>Terkait dengan Firebase Cloud Firestore</span>
+        </div>
       </div>
 
       {/* Main Login Card */}
       <div className="w-full max-w-lg bg-slate-900/90 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10">
+        {/* Google One-Click Login Button */}
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isGoogleLoading}
+            className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-bold text-sm shadow-xl flex items-center justify-center gap-3 transition-all cursor-pointer border border-slate-200 active:scale-[0.99]"
+          >
+            {isGoogleLoading ? (
+              <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
+            ) : (
+              <>
+                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12s.45 3.84 1.25 5.42l4.03-3.15z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                  />
+                </svg>
+                <span>Masuk Cepat dengan Akun Google</span>
+                <Sparkles className="w-4 h-4 text-amber-500" />
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-slate-400 text-center mt-2">
+            Data otomatis tersinkronisasi antar perangkat & akun Google Anda secara realtime.
+          </p>
+        </div>
+
+        {/* Divider */}
+        <div className="relative flex items-center justify-center my-5">
+          <div className="border-t border-slate-800 w-full" />
+          <span className="bg-slate-900 px-3 text-xs text-slate-500 uppercase tracking-wider shrink-0 font-medium">
+            Atau Masuk dengan Akun Kasir
+          </span>
+          <div className="border-t border-slate-800 w-full" />
+        </div>
+
         {/* Role Tabs */}
-        <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-950/70 border border-slate-800 rounded-2xl mb-6">
+        <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-950/70 border border-slate-800 rounded-2xl mb-4">
           <button
             type="button"
             onClick={() => handleSelectRole('super_admin')}
-            className={`flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
+            className={`flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer ${
               selectedRole === 'super_admin'
                 ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/30'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -111,7 +188,7 @@ export const LoginView: React.FC = () => {
           <button
             type="button"
             onClick={() => handleSelectRole('anggota')}
-            className={`flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-200 cursor-pointer ${
+            className={`flex items-center justify-center gap-2.5 py-2.5 px-4 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer ${
               selectedRole === 'anggota'
                 ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-600/30'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -122,42 +199,18 @@ export const LoginView: React.FC = () => {
           </button>
         </div>
 
-        {/* Role Privileges Banner */}
-        <div
-          className={`p-4 rounded-2xl border text-xs sm:text-sm mb-6 flex items-start gap-3 transition-colors ${
-            selectedRole === 'super_admin'
-              ? 'bg-purple-950/30 border-purple-800/40 text-purple-200'
-              : 'bg-emerald-950/30 border-emerald-800/40 text-emerald-200'
-          }`}
-        >
-          {selectedRole === 'super_admin' ? (
-            <>
-              <ShieldCheck className="w-5 h-5 text-purple-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-purple-300">Hak Akses Super Admin:</p>
-                <p className="text-purple-200/80 text-xs mt-0.5 leading-relaxed">
-                  Memasukkan barang baru, ubah harga & stok, kelola daftar akun anggota, lihat laporan keuangan/omset, dan transaksi kasir.
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <UserCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-emerald-300">Hak Akses Anggota (Kasir):</p>
-                <p className="text-emerald-200/80 text-xs mt-0.5 leading-relaxed">
-                  Dikhususkan untuk proses transaksi penjualan kasir, cek stok barang, dan cetak struk pembayaran pelanggan.
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Error Alert */}
+        {/* Error / Success Alert */}
         {errorMsg && (
-          <div className="mb-5 p-3.5 bg-rose-950/50 border border-rose-800/60 rounded-xl flex items-center gap-3 text-rose-300 text-xs sm:text-sm animate-shake">
+          <div className="mb-4 p-3 bg-rose-950/50 border border-rose-800/60 rounded-xl flex items-center gap-2 text-rose-300 text-xs">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
             <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {successMsg && (
+          <div className="mb-4 p-3 bg-emerald-950/50 border border-emerald-800/60 rounded-xl flex items-center gap-2 text-emerald-300 text-xs">
+            <CloudCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{successMsg}</span>
           </div>
         )}
 
@@ -198,7 +251,6 @@ export const LoginView: React.FC = () => {
                 autoComplete="current-password"
                 className="w-full pl-10 pr-11 py-2.5 bg-slate-950/70 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition"
               />
-              {/* Eye Toggle to Show / Hide Password */}
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
@@ -212,13 +264,6 @@ export const LoginView: React.FC = () => {
                 )}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
-              {showPassword ? (
-                <span className="text-emerald-400 font-medium">Password ditampilkan (klik icon mata untuk menyembunyikan)</span>
-              ) : (
-                <span>Klik icon mata untuk melihat password saat mengetik</span>
-              )}
-            </p>
           </div>
 
           <button
@@ -243,8 +288,9 @@ export const LoginView: React.FC = () => {
       </div>
 
       {/* Footer Info */}
-      <div className="mt-8 text-center text-xs text-slate-500 relative z-10">
-        AFSTORE Point of Sales • Aman, Cepat, dan Akurat
+      <div className="mt-6 text-center text-xs text-slate-500 relative z-10 flex flex-col items-center gap-1">
+        <span>AFSTORE Point of Sales • Aman, Cepat, dan Akurat</span>
+        <span className="text-[11px] text-slate-600">Database: Firebase Firestore (Online & Terpusat)</span>
       </div>
     </div>
   );
