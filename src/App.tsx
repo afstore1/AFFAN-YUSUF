@@ -7,10 +7,12 @@ import { ProductManagementView } from './components/ProductManagementView';
 import { MemberManagementView } from './components/MemberManagementView';
 import { ReportView } from './components/ReportView';
 import { SettingsModal } from './components/SettingsModal';
+import { MigrationModal } from './components/MigrationModal';
 
 const MainApp: React.FC = () => {
   const { currentUser, activeTab } = usePos();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMigrationOpen, setIsMigrationOpen] = useState(false);
 
   // If not logged in, show the split login page
   if (!currentUser) {
@@ -20,7 +22,10 @@ const MainApp: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       {/* Top Navigation */}
-      <Navbar onOpenSettings={() => setIsSettingsOpen(true)} />
+      <Navbar 
+        onOpenSettings={() => setIsSettingsOpen(true)} 
+        onOpenMigration={() => setIsMigrationOpen(true)}
+      />
 
       {/* Main Content View */}
       <main className="flex-1 pb-12">
@@ -34,6 +39,13 @@ const MainApp: React.FC = () => {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+        onOpenMigration={() => setIsMigrationOpen(true)}
+      />
+
+      {/* Migration Modal */}
+      <MigrationModal
+        isOpen={isMigrationOpen}
+        onClose={() => setIsMigrationOpen(false)}
       />
 
       {/* Subtle Footer */}

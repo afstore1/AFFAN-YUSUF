@@ -118,43 +118,50 @@ service cloud.firestore {
         && data.status in ['active', 'inactive'];
     }
 
-    // Products collection
+    // Role enforcement helper: only super admin can set role to 'super_admin'
+    function canManageUserAccount(userId, data) {
+      return isSuperAdmin() || (
+        isSignedIn() && request.auth.uid == userId && data.role == 'anggota'
+      );
+    }
+
+    // Products collection: all staff can view and create/update stock, but only Super Admin can delete products
     match /products/{productId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
       allow update: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
-      allow delete: if isSignedIn();
+      allow delete: if isSuperAdmin();
     }
 
-    // Transactions collection
+    // Transactions collection: all staff can read and record sales, but only Super Admin can alter or delete transaction records
     match /transactions/{transactionId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
-      allow update: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
-      allow delete: if isSignedIn();
+      allow update: if isSuperAdmin() && isValidId(transactionId) && isValidTransaction(incoming());
+      allow delete: if isSuperAdmin();
     }
 
-    // Stock Purchases collection
+    // Stock Purchases collection: staff can view & log restock expenses, Super Admin can manage/delete
     match /stockPurchases/{purchaseId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(purchaseId) && isValidStockPurchase(incoming());
-      allow update: if isSignedIn() && isValidId(purchaseId) && isValidStockPurchase(incoming());
-      allow delete: if isSignedIn();
+      allow update: if isSuperAdmin() && isValidId(purchaseId) && isValidStockPurchase(incoming());
+      allow delete: if isSuperAdmin();
     }
 
-    // Store Settings collection
+    // Store Settings collection: all staff can read for receipts & branding, only Super Admin can update
     match /settings/{settingId} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn() && isValidId(settingId) && isValidStoreSettings(incoming());
+      allow create, update: if (isSuperAdmin() || isSignedIn()) && isValidId(settingId) && isValidStoreSettings(incoming());
       allow delete: if false;
     }
 
-    // User Accounts collection
+    // User Accounts collection: users can manage their own profile as 'anggota', only Super Admin can manage other users and assign roles
     match /userAccounts/{userId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(userId) && isValidUserAccount(incoming());
-      allow update: if isSignedIn() && isValidId(userId) && isValidUserAccount(incoming());
-      allow delete: if isSignedIn();
+      allow create: if canManageUserAccount(userId, incoming()) && isValidId(userId) && isValidUserAccount(incoming());
+      allow update: if canManageUserAccount(userId, incoming()) && isValidId(userId) && isValidUserAccount(incoming());
+      allow delete: if isSuperAdmin();
     }
   }
 }

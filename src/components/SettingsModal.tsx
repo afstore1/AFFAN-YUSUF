@@ -21,9 +21,10 @@ import {
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onOpenMigration?: () => void;
 }
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onOpenMigration }) => {
   const { 
     settings, 
     updateSettings, 
@@ -218,6 +219,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Sinkronkan Sekarang</span>
             </button>
+
+            {onOpenMigration && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenMigration();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-purple-600/20"
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span>Pusat Migrasi Data LocalStorage</span>
+              </button>
+            )}
 
             <button
               type="button"

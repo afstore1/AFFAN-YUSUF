@@ -13,10 +13,14 @@ import {
   UserCheck,
   Store,
   Clock,
-  RefreshCw
+  RefreshCw,
+  Database
 } from 'lucide-react';
 
-export const Navbar: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettings }) => {
+export const Navbar: React.FC<{ 
+  onOpenSettings?: () => void;
+  onOpenMigration?: () => void;
+}> = ({ onOpenSettings, onOpenMigration }) => {
   const { 
     currentUser, 
     logout, 
@@ -148,7 +152,7 @@ export const Navbar: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettin
             </button>
           </nav>
 
-          {/* Right Section: Cloud Sync, Clock, Sound, User info, Logout */}
+          {/* Right Section: Cloud Sync, Migration Tool, Clock, Sound, User info, Logout */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {/* Firebase Multi-Account Cloud Sync Button */}
             <button
@@ -172,6 +176,19 @@ export const Navbar: React.FC<{ onOpenSettings?: () => void }> = ({ onOpenSettin
                 {syncStatus === 'synced' ? 'Firebase Aktif' : syncStatus === 'syncing' ? 'Sinkron...' : 'Firebase'}
               </span>
             </button>
+
+            {/* Migration Tool Button */}
+            {onOpenMigration && (
+              <button
+                type="button"
+                onClick={onOpenMigration}
+                title="Pusat Migrasi Data LocalStorage ke Firebase Firestore"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-indigo-700/60 bg-indigo-950/50 hover:bg-indigo-900/60 text-indigo-300 text-xs transition cursor-pointer font-medium"
+              >
+                <Database className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden lg:inline text-[11px]">Migrasi Data</span>
+              </button>
+            )}
 
             {/* Live Clock */}
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800 text-slate-300 text-xs font-mono">

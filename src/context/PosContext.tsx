@@ -81,14 +81,8 @@ interface PosContextType {
 
 const PosContext = createContext<PosContextType | undefined>(undefined);
 
-// Clean up stale localStorage entries to ensure Firestore is the single source of truth
-try {
-  localStorage.removeItem('kasirpro_products_v1');
-  localStorage.removeItem('kasirpro_transactions_v1');
-  localStorage.removeItem('kasirpro_stock_purchases_v1');
-  localStorage.removeItem('kasirpro_settings_v1');
-  localStorage.removeItem('kasirpro_users_v1');
-} catch {}
+// LocalStorage preservation: We do NOT delete localStorage so user data is safely preserved for backup and migration.
+
 
 export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Sync status
