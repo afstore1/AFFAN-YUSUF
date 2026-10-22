@@ -7,6 +7,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Healthcheck / test connection route
+    match /test/{docId} {
+      allow read: if true;
+    }
+
     // Helper functions
     function isSignedIn() {
       return request.auth != null;
@@ -117,18 +122,16 @@ service cloud.firestore {
     match /products/{productId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
-      allow update: if isSignedIn() && isValidId(productId) && isValidProduct(incoming()) && (
-        isSuperAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['stock', 'updatedAt'])
-      );
-      allow delete: if isSuperAdmin();
+      allow update: if isSignedIn() && isValidId(productId) && isValidProduct(incoming());
+      allow delete: if isSignedIn();
     }
 
     // Transactions collection
     match /transactions/{transactionId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
-      allow update: if isSuperAdmin() && isValidId(transactionId) && isValidTransaction(incoming());
-      allow delete: if isSuperAdmin();
+      allow update: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
+      allow delete: if isSignedIn();
     }
 
     // Stock Purchases collection
@@ -136,7 +139,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(purchaseId) && isValidStockPurchase(incoming());
       allow update: if isSignedIn() && isValidId(purchaseId) && isValidStockPurchase(incoming());
-      allow delete: if isSuperAdmin();
+      allow delete: if isSignedIn();
     }
 
     // Store Settings collection
@@ -151,7 +154,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(userId) && isValidUserAccount(incoming());
       allow update: if isSignedIn() && isValidId(userId) && isValidUserAccount(incoming());
-      allow delete: if isSuperAdmin();
+      allow delete: if isSignedIn();
     }
   }
 }

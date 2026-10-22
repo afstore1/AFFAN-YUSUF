@@ -36,7 +36,7 @@ interface PosContextType {
   settings: StoreSettings;
   activeTab: 'pos' | 'products' | 'members' | 'reports' | 'settings';
   setActiveTab: (tab: 'pos' | 'products' | 'members' | 'reports' | 'settings') => void;
-  // Cloud & Multi-account Sync
+  // Cloud Firestore Sync State
   syncStatus: SyncStatus;
   lastSyncTime: string | null;
   syncWithServer: (silent?: boolean) => Promise<{ success: boolean; message: string }>;
@@ -50,7 +50,7 @@ interface PosContextType {
   addUser: (userData: Omit<UserAccount, 'id' | 'createdAt'>) => { success: boolean; message: string };
   updateUser: (id: string, updates: Partial<UserAccount>) => { success: boolean; message: string };
   deleteUser: (id: string) => { success: boolean; message: string };
-  // Product methods (Super Admin for mutating)
+  // Product methods
   addProduct: (productData: Omit<Product, 'id'>) => { success: boolean; message: string };
   updateProduct: (id: string, updates: Partial<Product>) => { success: boolean; message: string };
   deleteProduct: (id: string) => { success: boolean; message: string };
@@ -81,17 +81,17 @@ interface PosContextType {
 
 const PosContext = createContext<PosContextType | undefined>(undefined);
 
-const STORAGE_KEYS = {
-  USERS: 'kasirpro_users_v1',
-  PRODUCTS: 'kasirpro_products_v1',
-  TRANSACTIONS: 'kasirpro_transactions_v1',
-  STOCK_PURCHASES: 'kasirpro_stock_purchases_v1',
-  SETTINGS: 'kasirpro_settings_v1',
-  CURRENT_USER: 'kasirpro_current_user_v1',
-};
+// Clean up stale localStorage entries to ensure Firestore is the single source of truth
+try {
+  localStorage.removeItem('kasirpro_products_v1');
+  localStorage.removeItem('kasirpro_transactions_v1');
+  localStorage.removeItem('kasirpro_stock_purchases_v1');
+  localStorage.removeItem('kasirpro_settings_v1');
+  localStorage.removeItem('kasirpro_users_v1');
+} catch {}
 
 export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Sync status across devices and accounts
+  // Sync status
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('syncing');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
@@ -99,58 +99,16 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
-  // Local state initialized with cached or default values
-  const [users, setUsers] = useState<UserAccount[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.USERS);
-      if (saved) return JSON.parse(saved);
-      return INITIAL_USERS;
-    } catch {
-      return INITIAL_USERS;
-    }
-  });
-
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
-      if (saved) return JSON.parse(saved);
-      return INITIAL_PRODUCTS;
-    } catch {
-      return INITIAL_PRODUCTS;
-    }
-  });
-
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.TRANSACTIONS);
-      return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
-    } catch {
-      return INITIAL_TRANSACTIONS;
-    }
-  });
-
-  const [stockPurchases, setStockPurchases] = useState<StockPurchase[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.STOCK_PURCHASES);
-      return saved ? JSON.parse(saved) : INITIAL_STOCK_PURCHASES;
-    } catch {
-      return INITIAL_STOCK_PURCHASES;
-    }
-  });
-
-  const [settings, setSettings] = useState<StoreSettings>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      if (saved) return JSON.parse(saved);
-      return INITIAL_SETTINGS;
-    } catch {
-      return INITIAL_SETTINGS;
-    }
-  });
+  // Core application state: SOLE SOURCE OF TRUTH IS FIRESTORE
+  const [users, setUsers] = useState<UserAccount[]>(INITIAL_USERS);
+  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
+  const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
+  const [stockPurchases, setStockPurchases] = useState<StockPurchase[]>(INITIAL_STOCK_PURCHASES);
+  const [settings, setSettings] = useState<StoreSettings>(INITIAL_SETTINGS);
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      const saved = localStorage.getItem('kasirpro_current_user_v1');
       if (saved) return JSON.parse(saved);
       return null;
     } catch {
@@ -164,43 +122,48 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // 1. Listen to Firebase Auth state
   useEffect(() => {
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       setIsAuthReady(true);
 
       if (user) {
-        // Multi-Account Google Login sync
         const isSuperAdminEmail = user.email?.toLowerCase() === 'affan.yusuf192@guru.smp.belajar.id';
-        if (isSuperAdminEmail) {
-          const adminAccount: UserAccount = {
-            id: user.uid,
-            username: 'affan.yusuf',
-            password: '',
-            fullName: user.displayName || 'AFFAN YUSUF (Super Admin)',
-            role: 'super_admin',
-            phone: '081234567890',
-            email: user.email || 'affan.yusuf192@guru.smp.belajar.id',
-            avatarColor: 'bg-indigo-600',
-            createdAt: new Date().toISOString(),
-            status: 'active'
-          };
-          setCurrentUser(adminAccount);
-        } else if (user.email) {
-          setCurrentUser(prev => {
-            if (prev && prev.email?.toLowerCase() === user.email?.toLowerCase()) return prev;
-            return {
-              id: user.uid,
-              username: (user.email?.split('@')[0] || 'kasir').toLowerCase(),
-              password: '',
-              fullName: user.displayName || 'Anggota Kasir',
-              role: 'anggota',
-              phone: '-',
-              email: user.email || undefined,
-              avatarColor: 'bg-emerald-600',
-              createdAt: new Date().toISOString(),
-              status: 'active'
-            };
-          });
+        
+        // Find existing profile in Firestore user accounts
+        let userRole: UserRole = isSuperAdminEmail ? 'super_admin' : 'anggota';
+        let userFullName = user.displayName || (isSuperAdminEmail ? 'AFFAN YUSUF (Super Admin)' : 'Kasir Toko');
+
+        try {
+          const userDoc = await getDoc(doc(db, 'userAccounts', user.uid));
+          if (userDoc.exists()) {
+            const data = userDoc.data() as UserAccount;
+            userRole = data.role;
+            userFullName = data.fullName;
+          }
+        } catch {
+          // Fall back to default role determination
+        }
+
+        const account: UserAccount = {
+          id: user.uid,
+          username: (user.email?.split('@')[0] || 'kasir').toLowerCase(),
+          password: '',
+          fullName: userFullName,
+          role: userRole,
+          phone: '-',
+          email: user.email || undefined,
+          avatarColor: userRole === 'super_admin' ? 'bg-indigo-600' : 'bg-emerald-600',
+          createdAt: new Date().toISOString(),
+          status: 'active'
+        };
+
+        setCurrentUser(account);
+
+        // Ensure user account exists in Firestore
+        try {
+          await setDoc(doc(db, 'userAccounts', user.uid), account, { merge: true });
+        } catch (e) {
+          console.warn('Syncing user account to Firestore:', e);
         }
       }
     });
@@ -208,7 +171,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => unsubscribeAuth();
   }, []);
 
-  // 2. Real-time Firestore sync when authenticated
+  // 2. Real-time Firestore synchronizer: Attached whenever authenticated
   useEffect(() => {
     if (!firebaseUser) {
       setSyncStatus('offline');
@@ -217,7 +180,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setSyncStatus('syncing');
 
-    // Subscribe to products collection
+    // Realtime Products listener
     const unsubProducts = onSnapshot(
       collection(db, 'products'),
       (snapshot) => {
@@ -227,7 +190,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             prods.push(docSnap.data() as Product);
           });
           setProducts(prods);
-          localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(prods));
         } else if (!isSeedingRef.current) {
           seedInitialData();
         }
@@ -240,7 +202,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     );
 
-    // Subscribe to transactions collection
+    // Realtime Transactions listener
     const unsubTransactions = onSnapshot(
       collection(db, 'transactions'),
       (snapshot) => {
@@ -250,7 +212,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
         txs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setTransactions(txs);
-        localStorage.setItem(STORAGE_KEYS.TRANSACTIONS, JSON.stringify(txs));
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
       },
@@ -260,7 +221,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     );
 
-    // Subscribe to stockPurchases collection
+    // Realtime Stock Purchases listener
     const unsubStockPurchases = onSnapshot(
       collection(db, 'stockPurchases'),
       (snapshot) => {
@@ -270,7 +231,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         });
         sps.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
         setStockPurchases(sps);
-        localStorage.setItem(STORAGE_KEYS.STOCK_PURCHASES, JSON.stringify(sps));
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
       },
@@ -280,14 +240,13 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     );
 
-    // Subscribe to settings document
+    // Realtime Store Settings listener
     const unsubSettings = onSnapshot(
       doc(db, 'settings', 'store'),
       (docSnap) => {
         if (docSnap.exists()) {
           const storeData = docSnap.data() as StoreSettings;
           setSettings(storeData);
-          localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(storeData));
         } else {
           setDoc(doc(db, 'settings', 'store'), INITIAL_SETTINGS).catch(() => {});
         }
@@ -300,7 +259,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     );
 
-    // Subscribe to userAccounts collection
+    // Realtime User Accounts listener
     const unsubUsers = onSnapshot(
       collection(db, 'userAccounts'),
       (snapshot) => {
@@ -310,7 +269,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             us.push(docSnap.data() as UserAccount);
           });
           setUsers(us);
-          localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(us));
         }
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
@@ -330,7 +288,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
   }, [firebaseUser]);
 
-  // Seed initial data to Firestore if remote is blank
+  // Seed default data directly into Firestore if remote collection is empty
   const seedInitialData = async () => {
     if (isSeedingRef.current) return;
     isSeedingRef.current = true;
@@ -349,19 +307,19 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         await setDoc(doc(db, 'stockPurchases', sp.id), sp);
       }
     } catch (e) {
-      console.warn('Seeding initial data:', e);
+      console.warn('Seeding initial data into Firestore:', e);
     } finally {
       isSeedingRef.current = false;
     }
   };
 
-  // Keep local storage synced for offline fallback
+  // Keep session user cached in local storage for fast page refreshes
   useEffect(() => {
     try {
       if (currentUser) {
-        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(currentUser));
+        localStorage.setItem('kasirpro_current_user_v1', JSON.stringify(currentUser));
       } else {
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+        localStorage.removeItem('kasirpro_current_user_v1');
       }
     } catch {}
   }, [currentUser]);
@@ -374,24 +332,39 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const user = result.user;
       const isSuper = user.email?.toLowerCase() === 'affan.yusuf192@guru.smp.belajar.id';
 
+      // Check if this account already has an entry in Firestore
+      let role: UserRole = isSuper ? 'super_admin' : 'anggota';
+      let fullName = user.displayName || (isSuper ? 'AFFAN YUSUF (Super Admin)' : 'Kasir Toko');
+
+      try {
+        const uSnap = await getDoc(doc(db, 'userAccounts', user.uid));
+        if (uSnap.exists()) {
+          const uData = uSnap.data() as UserAccount;
+          role = uData.role;
+          fullName = uData.fullName;
+        }
+      } catch {}
+
       const account: UserAccount = {
         id: user.uid,
         username: (user.email?.split('@')[0] || 'google_user').toLowerCase(),
         password: '',
-        fullName: user.displayName || (isSuper ? 'AFFAN YUSUF (Super Admin)' : 'Anggota Kasir'),
-        role: isSuper ? 'super_admin' : 'anggota',
+        fullName,
+        role,
         phone: '-',
         email: user.email || undefined,
-        avatarColor: isSuper ? 'bg-indigo-600' : 'bg-emerald-600',
+        avatarColor: role === 'super_admin' ? 'bg-indigo-600' : 'bg-emerald-600',
         createdAt: new Date().toISOString(),
         status: 'active'
       };
 
       setCurrentUser(account);
+      await setDoc(doc(db, 'userAccounts', user.uid), account, { merge: true });
+
       sound.playSuccess(settings.enableSound);
       return { 
         success: true, 
-        message: `Berhasil terhubung ke Firebase dengan akun Google: ${user.email} (${account.role === 'super_admin' ? 'Super Admin' : 'Anggota Kasir'})` 
+        message: `Terhubung langsung ke Firestore dengan akun Google: ${user.email} (${account.role === 'super_admin' ? 'Super Admin' : 'Anggota Kasir'})` 
       };
     } catch (error: any) {
       console.error('Google Sign In Error:', error);
@@ -399,7 +372,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  // Standard username & password login
+  // Staff username & password login
   const login = (username: string, pass: string, requiredRole: UserRole): { success: boolean; message: string } => {
     const trimmedUsername = username.trim().toLowerCase();
     const found = users.find(u => u.username.toLowerCase() === trimmedUsername);
@@ -438,15 +411,11 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     sound.playClick(settings.enableSound);
   };
 
-  // Sync manually with Firestore
+  // Manual trigger to pull fresh data from Firestore
   const syncWithServer = async (silent: boolean = false): Promise<{ success: boolean; message: string }> => {
-    if (!firebaseUser) {
-      if (!silent) setSyncStatus('offline');
-      return { success: false, message: 'Masuk dengan Akun Google terlebih dahulu untuk menghubungkan Firebase.' };
-    }
-
     try {
       if (!silent) setSyncStatus('syncing');
+
       const prodSnap = await getDocs(collection(db, 'products'));
       const prods: Product[] = [];
       prodSnap.forEach(d => prods.push(d.data() as Product));
@@ -467,13 +436,18 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const setSnap = await getDoc(doc(db, 'settings', 'store'));
       if (setSnap.exists()) setSettings(setSnap.data() as StoreSettings);
 
+      const userSnap = await getDocs(collection(db, 'userAccounts'));
+      const us: UserAccount[] = [];
+      userSnap.forEach(d => us.push(d.data() as UserAccount));
+      if (us.length > 0) setUsers(us);
+
       setSyncStatus('synced');
       setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
-      return { success: true, message: 'Semua data toko berhasil disinkronkan langsung dari Firebase Firestore!' };
+      return { success: true, message: 'Semua data toko berhasil diperbarui langsung dari Cloud Firestore!' };
     } catch (err: any) {
       setSyncStatus('error');
       handleFirestoreError(err, OperationType.GET, 'sync');
-      return { success: false, message: 'Gagal menyinkronkan: ' + err.message };
+      return { success: false, message: 'Gagal memperbarui: ' + err.message };
     }
   };
 
@@ -482,7 +456,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const backupObj = {
       appName: 'AFSTORE POS',
       version: '2.0',
-      firebaseSynced: !!firebaseUser,
+      firestoreDatabaseId: 'ai-studio-kasirproaplikasi-dd223450-e61e-4945-8b13-f8d3480d3ff4',
       exportedAt: new Date().toISOString(),
       storeName: settings.storeName,
       users,
@@ -496,24 +470,24 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `AFSTORE_FIREBASE_BACKUP_${new Date().toISOString().split('T')[0]}_${Date.now().toString().slice(-4)}.json`;
+    a.download = `AFSTORE_FIRESTORE_BACKUP_${new Date().toISOString().split('T')[0]}_${Date.now().toString().slice(-4)}.json`;
     a.click();
     URL.revokeObjectURL(url);
     sound.playSuccess(settings.enableSound);
   };
 
-  // JSON Import
+  // JSON Import directly to Firestore
   const importBackupData = async (data: any): Promise<{ success: boolean; message: string }> => {
     try {
       if (!data || typeof data !== 'object') {
         return { success: false, message: 'Format file cadangan tidak valid.' };
       }
 
-      const newUsers = Array.isArray(data.users) && data.users.length > 0 ? data.users : users;
-      const newProducts = Array.isArray(data.products) ? data.products : products;
-      const newTransactions = Array.isArray(data.transactions) ? data.transactions : transactions;
-      const newStockPurchases = Array.isArray(data.stockPurchases) ? data.stockPurchases : stockPurchases;
-      const newSettings = data.settings && typeof data.settings === 'object' ? data.settings : settings;
+      const newUsers: UserAccount[] = Array.isArray(data.users) && data.users.length > 0 ? data.users : users;
+      const newProducts: Product[] = Array.isArray(data.products) ? data.products : products;
+      const newTransactions: Transaction[] = Array.isArray(data.transactions) ? data.transactions : transactions;
+      const newStockPurchases: StockPurchase[] = Array.isArray(data.stockPurchases) ? data.stockPurchases : stockPurchases;
+      const newSettings: StoreSettings = data.settings && typeof data.settings === 'object' ? data.settings : settings;
 
       setUsers(newUsers);
       setProducts(newProducts);
@@ -521,27 +495,29 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setStockPurchases(newStockPurchases);
       setSettings(newSettings);
 
-      if (firebaseUser) {
-        for (const p of newProducts) {
-          setDoc(doc(db, 'products', p.id), p).catch(e => handleFirestoreError(e, OperationType.WRITE, `products/${p.id}`));
-        }
-        for (const t of newTransactions) {
-          setDoc(doc(db, 'transactions', t.id), t).catch(e => handleFirestoreError(e, OperationType.WRITE, `transactions/${t.id}`));
-        }
-        for (const sp of newStockPurchases) {
-          setDoc(doc(db, 'stockPurchases', sp.id), sp).catch(e => handleFirestoreError(e, OperationType.WRITE, `stockPurchases/${sp.id}`));
-        }
-        setDoc(doc(db, 'settings', 'store'), newSettings).catch(e => handleFirestoreError(e, OperationType.WRITE, 'settings/store'));
+      // Write directly to Firestore
+      for (const p of newProducts) {
+        await setDoc(doc(db, 'products', p.id), p);
+      }
+      for (const t of newTransactions) {
+        await setDoc(doc(db, 'transactions', t.id), t);
+      }
+      for (const sp of newStockPurchases) {
+        await setDoc(doc(db, 'stockPurchases', sp.id), sp);
+      }
+      await setDoc(doc(db, 'settings', 'store'), newSettings);
+      for (const u of newUsers) {
+        await setDoc(doc(db, 'userAccounts', u.id), u);
       }
 
       sound.playSuccess(settings.enableSound);
-      return { success: true, message: 'Data cadangan berhasil dipulihkan dan disinkronkan ke Firebase!' };
+      return { success: true, message: 'Data cadangan berhasil dipulihkan dan disimpan langsung ke Firestore!' };
     } catch (err: any) {
       return { success: false, message: 'Gagal memulihkan cadangan: ' + err.message };
     }
   };
 
-  // Member Management
+  // Member Management directly to Firestore
   const addUser = (userData: Omit<UserAccount, 'id' | 'createdAt'>): { success: boolean; message: string } => {
     const exists = users.some(u => u.username.toLowerCase() === userData.username.toLowerCase());
     if (exists) {
@@ -555,13 +531,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     setUsers(prev => [...prev, newUser]);
-    if (firebaseUser) {
-      setDoc(doc(db, 'userAccounts', newUser.id), newUser).catch(e => 
-        handleFirestoreError(e, OperationType.CREATE, `userAccounts/${newUser.id}`)
-      );
-    }
+    setDoc(doc(db, 'userAccounts', newUser.id), newUser).catch(e => 
+      handleFirestoreError(e, OperationType.CREATE, `userAccounts/${newUser.id}`)
+    );
+
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: `Akun anggota "${newUser.fullName}" berhasil ditambahkan.` };
+    return { success: true, message: `Akun anggota "${newUser.fullName}" berhasil disimpan ke Firestore.` };
   };
 
   const updateUser = (id: string, updates: Partial<UserAccount>): { success: boolean; message: string } => {
@@ -577,13 +552,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentUser(prev => (prev ? { ...prev, ...updates } : null));
     }
 
-    if (firebaseUser) {
-      updateDoc(doc(db, 'userAccounts', id), updates).catch(e => 
-        handleFirestoreError(e, OperationType.UPDATE, `userAccounts/${id}`)
-      );
-    }
+    updateDoc(doc(db, 'userAccounts', id), updates).catch(e => 
+      handleFirestoreError(e, OperationType.UPDATE, `userAccounts/${id}`)
+    );
+
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Data akun berhasil diperbarui.' };
+    return { success: true, message: 'Data akun berhasil diperbarui di Firestore.' };
   };
 
   const deleteUser = (id: string): { success: boolean; message: string } => {
@@ -592,16 +566,15 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (target.role === 'super_admin') return { success: false, message: 'Akun Super Admin tidak dapat dihapus.' };
 
     setUsers(prev => prev.filter(u => u.id !== id));
-    if (firebaseUser) {
-      deleteDoc(doc(db, 'userAccounts', id)).catch(e => 
-        handleFirestoreError(e, OperationType.DELETE, `userAccounts/${id}`)
-      );
-    }
+    deleteDoc(doc(db, 'userAccounts', id)).catch(e => 
+      handleFirestoreError(e, OperationType.DELETE, `userAccounts/${id}`)
+    );
+
     sound.playClick(settings.enableSound);
-    return { success: true, message: `Akun "${target.fullName}" berhasil dihapus.` };
+    return { success: true, message: `Akun "${target.fullName}" berhasil dihapus dari Firestore.` };
   };
 
-  // Product Management
+  // Product Management directly to Firestore
   const addProduct = (productData: Omit<Product, 'id'>): { success: boolean; message: string } => {
     const codeClean = productData.code.trim();
     if (codeClean && products.some(p => p.code.toLowerCase() === codeClean.toLowerCase())) {
@@ -620,13 +593,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     };
 
     setProducts(prev => [newProduct, ...prev]);
-    if (firebaseUser) {
-      setDoc(doc(db, 'products', newProduct.id), newProduct).catch(e => 
-        handleFirestoreError(e, OperationType.CREATE, `products/${newProduct.id}`)
-      );
-    }
+    setDoc(doc(db, 'products', newProduct.id), newProduct).catch(e => 
+      handleFirestoreError(e, OperationType.CREATE, `products/${newProduct.id}`)
+    );
+
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: `Barang "${newProduct.name}" berhasil ditambahkan.` };
+    return { success: true, message: `Barang "${newProduct.name}" berhasil disimpan ke Firestore.` };
   };
 
   const updateProduct = (id: string, updates: Partial<Product>): { success: boolean; message: string } => {
@@ -644,13 +616,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setProducts(prev => prev.map(p => (p.id === id ? { ...p, ...cleanUpdates } : p)));
 
-    if (firebaseUser) {
-      updateDoc(doc(db, 'products', id), cleanUpdates).catch(e => 
-        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
-      );
-    }
+    updateDoc(doc(db, 'products', id), cleanUpdates).catch(e => 
+      handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
+    );
+
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Data barang berhasil diperbarui.' };
+    return { success: true, message: 'Data barang berhasil diperbarui di Firestore.' };
   };
 
   const deleteProduct = (id: string): { success: boolean; message: string } => {
@@ -660,13 +631,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setProducts(prev => prev.filter(p => p.id !== id));
     setCart(prev => prev.filter(c => c.product.id !== id));
 
-    if (firebaseUser) {
-      deleteDoc(doc(db, 'products', id)).catch(e => 
-        handleFirestoreError(e, OperationType.DELETE, `products/${id}`)
-      );
-    }
+    deleteDoc(doc(db, 'products', id)).catch(e => 
+      handleFirestoreError(e, OperationType.DELETE, `products/${id}`)
+    );
+
     sound.playClick(settings.enableSound);
-    return { success: true, message: `Barang "${target.name}" berhasil dihapus.` };
+    return { success: true, message: `Barang "${target.name}" berhasil dihapus dari Firestore.` };
   };
 
   const adjustStock = (id: string, deltaAmount: number) => {
@@ -675,11 +645,10 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const newStock = Math.max(0, target.stock + deltaAmount);
     setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: newStock, updatedAt: new Date().toISOString() } : p));
 
-    if (firebaseUser) {
-      updateDoc(doc(db, 'products', id), { stock: newStock, updatedAt: new Date().toISOString() }).catch(e => 
-        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
-      );
-    }
+    updateDoc(doc(db, 'products', id), { stock: newStock, updatedAt: new Date().toISOString() }).catch(e => 
+      handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
+    );
+
     sound.playClick(settings.enableSound);
   };
 
@@ -690,13 +659,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const validStock = Math.max(0, Math.round(newStock));
     setProducts(prev => prev.map(p => p.id === id ? { ...p, stock: validStock, updatedAt: new Date().toISOString() } : p));
 
-    if (firebaseUser) {
-      updateDoc(doc(db, 'products', id), { stock: validStock, updatedAt: new Date().toISOString() }).catch(e => 
-        handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
-      );
-    }
+    updateDoc(doc(db, 'products', id), { stock: validStock, updatedAt: new Date().toISOString() }).catch(e => 
+      handleFirestoreError(e, OperationType.UPDATE, `products/${id}`)
+    );
+
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: `Stok "${target.name}" berhasil diubah menjadi ${validStock} ${target.unit}.` };
+    return { success: true, message: `Stok "${target.name}" berhasil diubah menjadi ${validStock} ${target.unit} di Firestore.` };
   };
 
   // Cart Management
@@ -732,7 +700,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     sound.playClick(settings.enableSound);
   };
 
-  // Checkout & Transactions
+  // Checkout & Transactions directly to Firestore
   const completeTransaction = (data: {
     paymentMethod: 'cash' | 'qris' | 'debit' | 'transfer';
     cashGiven: number;
@@ -809,18 +777,18 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const cartCopy = [...cart];
     setCart([]);
 
-    if (firebaseUser) {
-      setDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(e => 
-        handleFirestoreError(e, OperationType.CREATE, `transactions/${newTransaction.id}`)
-      );
-      for (const ci of cartCopy) {
-        const matched = updatedProducts.find(p => p.id === ci.product.id);
-        if (matched) {
-          updateDoc(doc(db, 'products', matched.id), { 
-            stock: matched.stock, 
-            updatedAt: new Date().toISOString() 
-          }).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
-        }
+    // Save directly to Firestore
+    setDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(e => 
+      handleFirestoreError(e, OperationType.CREATE, `transactions/${newTransaction.id}`)
+    );
+
+    for (const ci of cartCopy) {
+      const matched = updatedProducts.find(p => p.id === ci.product.id);
+      if (matched) {
+        updateDoc(doc(db, 'products', matched.id), { 
+          stock: matched.stock, 
+          updatedAt: new Date().toISOString() 
+        }).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
       }
     }
 
@@ -846,28 +814,27 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setTransactions(prev => prev.filter(t => t.id !== id));
 
-    if (firebaseUser) {
-      deleteDoc(doc(db, 'transactions', id)).catch(e => 
-        handleFirestoreError(e, OperationType.DELETE, `transactions/${id}`)
-      );
-      if (restoreStock && target.items) {
-        for (const item of target.items) {
-          const matched = updatedProducts.find(p => p.id === item.productId);
-          if (matched) {
-            updateDoc(doc(db, 'products', matched.id), { 
-              stock: matched.stock, 
-              updatedAt: new Date().toISOString() 
-            }).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
-          }
+    deleteDoc(doc(db, 'transactions', id)).catch(e => 
+      handleFirestoreError(e, OperationType.DELETE, `transactions/${id}`)
+    );
+
+    if (restoreStock && target.items) {
+      for (const item of target.items) {
+        const matched = updatedProducts.find(p => p.id === item.productId);
+        if (matched) {
+          updateDoc(doc(db, 'products', matched.id), { 
+            stock: matched.stock, 
+            updatedAt: new Date().toISOString() 
+          }).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
         }
       }
     }
 
     sound.playClick(settings.enableSound);
-    return { success: true, message: `Struk "${target.receiptNumber}" berhasil dihapus dari riwayat transaksi.` };
+    return { success: true, message: `Struk "${target.receiptNumber}" berhasil dihapus dari Firestore.` };
   };
 
-  // Stock Purchase methods
+  // Stock Purchase methods directly to Firestore
   const addStockPurchase = (data: { date: string; amount: number; description: string }): { success: boolean; message: string } => {
     if (data.amount <= 0) return { success: false, message: 'Nominal belanja harus lebih dari Rp 0.' };
     const cleanDesc = data.description?.trim() || 'Belanja stok barang';
@@ -884,13 +851,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setStockPurchases(prev => [newPurchase, ...prev]);
 
-    if (firebaseUser) {
-      setDoc(doc(db, 'stockPurchases', newPurchase.id), newPurchase).catch(e => 
-        handleFirestoreError(e, OperationType.CREATE, `stockPurchases/${newPurchase.id}`)
-      );
-    }
+    setDoc(doc(db, 'stockPurchases', newPurchase.id), newPurchase).catch(e => 
+      handleFirestoreError(e, OperationType.CREATE, `stockPurchases/${newPurchase.id}`)
+    );
+
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Catatan belanja stok barang berhasil ditambahkan.' };
+    return { success: true, message: 'Catatan belanja stok barang berhasil disimpan ke Firestore.' };
   };
 
   const updateStockPurchase = (id: string, data: { date: string; amount: number; description: string }): { success: boolean; message: string } => {
@@ -907,13 +873,12 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setStockPurchases(prev => prev.map(sp => sp.id === id ? { ...sp, ...updates } : sp));
 
-    if (firebaseUser) {
-      updateDoc(doc(db, 'stockPurchases', id), updates).catch(e => 
-        handleFirestoreError(e, OperationType.UPDATE, `stockPurchases/${id}`)
-      );
-    }
+    updateDoc(doc(db, 'stockPurchases', id), updates).catch(e => 
+      handleFirestoreError(e, OperationType.UPDATE, `stockPurchases/${id}`)
+    );
+
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Catatan belanja stok barang berhasil diperbarui.' };
+    return { success: true, message: 'Catatan belanja stok barang berhasil diperbarui di Firestore.' };
   };
 
   const deleteStockPurchase = (id: string): { success: boolean; message: string } => {
@@ -922,29 +887,27 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setStockPurchases(prev => prev.filter(sp => sp.id !== id));
 
-    if (firebaseUser) {
-      deleteDoc(doc(db, 'stockPurchases', id)).catch(e => 
-        handleFirestoreError(e, OperationType.DELETE, `stockPurchases/${id}`)
-      );
-    }
+    deleteDoc(doc(db, 'stockPurchases', id)).catch(e => 
+      handleFirestoreError(e, OperationType.DELETE, `stockPurchases/${id}`)
+    );
+
     sound.playClick(settings.enableSound);
-    return { success: true, message: 'Catatan belanja stok barang berhasil dihapus.' };
+    return { success: true, message: 'Catatan belanja stok barang berhasil dihapus dari Firestore.' };
   };
 
-  // Settings
+  // Settings directly to Firestore
   const updateSettings = (newSettings: Partial<StoreSettings>) => {
     const nextSettings = { ...settings, ...newSettings };
     setSettings(nextSettings);
 
-    if (firebaseUser) {
-      setDoc(doc(db, 'settings', 'store'), nextSettings, { merge: true }).catch(e => 
-        handleFirestoreError(e, OperationType.UPDATE, 'settings/store')
-      );
-    }
+    setDoc(doc(db, 'settings', 'store'), nextSettings, { merge: true }).catch(e => 
+      handleFirestoreError(e, OperationType.UPDATE, 'settings/store')
+    );
+
     sound.playClick(settings.enableSound);
   };
 
-  // Reset
+  // Reset directly in Firestore
   const resetAllData = () => {
     setUsers(INITIAL_USERS);
     setProducts(INITIAL_PRODUCTS);
@@ -952,15 +915,8 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setStockPurchases(INITIAL_STOCK_PURCHASES);
     setSettings(INITIAL_SETTINGS);
     setCart([]);
-    localStorage.removeItem(STORAGE_KEYS.USERS);
-    localStorage.removeItem(STORAGE_KEYS.PRODUCTS);
-    localStorage.removeItem(STORAGE_KEYS.TRANSACTIONS);
-    localStorage.removeItem(STORAGE_KEYS.STOCK_PURCHASES);
-    localStorage.removeItem(STORAGE_KEYS.SETTINGS);
 
-    if (firebaseUser) {
-      seedInitialData().catch(e => console.error('Reset initial data error:', e));
-    }
+    seedInitialData().catch(e => console.error('Reset initial data error in Firestore:', e));
     sound.playSuccess(settings.enableSound);
   };
 

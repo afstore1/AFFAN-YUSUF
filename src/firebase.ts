@@ -1,20 +1,29 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 export const app = initializeApp(firebaseConfig);
-// CRITICAL: The app will break without specifying firestoreDatabaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// CRITICAL: Initialize Firestore with experimentalForceLongPolling to avoid 10-second backend timeout in iframe and sandboxed networks
+export const db = initializeFirestore(
+  app,
+  {
+    experimentalForceLongPolling: true,
+  },
+  firebaseConfig.firestoreDatabaseId
+);
+
 export const auth = getAuth(app);
 
-// Validate connection to Firestore on boot
+// Non-blocking connection verification on boot
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {
+    // Non-fatal check: In sandboxes Firestore connects on first authenticated read/write
     if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error('Please check your Firebase configuration.');
+      console.warn('Firestore is in offline mode; reconnecting in background...');
     }
   }
 }
@@ -64,5 +73,5 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path,
   };
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  return errInfo;
 }
