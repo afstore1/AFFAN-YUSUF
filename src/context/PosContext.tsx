@@ -83,6 +83,27 @@ const PosContext = createContext<PosContextType | undefined>(undefined);
 
 // LocalStorage preservation: We do NOT delete localStorage so user data is safely preserved for backup and migration.
 
+/**
+ * Deeply cleans any object of undefined values to guarantee Firestore compatibility
+ */
+function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return '' as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const sanitized: Record<string, any> = {};
+    for (const [key, val] of Object.entries(data as Record<string, any>)) {
+      if (val !== undefined) {
+        sanitized[key] = sanitizeForFirestore(val);
+      }
+    }
+    return sanitized as T;
+  }
+  return data;
+}
 
 export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Sync status
@@ -145,7 +166,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           fullName: userFullName,
           role: userRole,
           phone: '-',
-          email: user.email || undefined,
+          email: user.email || '',
           avatarColor: userRole === 'super_admin' ? 'bg-indigo-600' : 'bg-emerald-600',
           createdAt: new Date().toISOString(),
           status: 'active'
@@ -155,10 +176,13 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
         // Ensure user account exists in Firestore
         try {
-          await setDoc(doc(db, 'userAccounts', user.uid), account, { merge: true });
+          await setDoc(doc(db, 'userAccounts', user.uid), sanitizeForFirestore(account), { merge: true });
         } catch (e) {
           console.warn('Syncing user account to Firestore:', e);
         }
+      } else {
+        // If logged out from Firebase, clear user session
+        setCurrentUser(null);
       }
     });
 
@@ -288,17 +312,17 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     isSeedingRef.current = true;
     try {
       for (const prod of INITIAL_PRODUCTS) {
-        await setDoc(doc(db, 'products', prod.id), prod);
+        await setDoc(doc(db, 'products', prod.id), sanitizeForFirestore(prod));
       }
-      await setDoc(doc(db, 'settings', 'store'), INITIAL_SETTINGS);
+      await setDoc(doc(db, 'settings', 'store'), sanitizeForFirestore(INITIAL_SETTINGS));
       for (const user of INITIAL_USERS) {
-        await setDoc(doc(db, 'userAccounts', user.id), user);
+        await setDoc(doc(db, 'userAccounts', user.id), sanitizeForFirestore(user));
       }
       for (const tx of INITIAL_TRANSACTIONS) {
-        await setDoc(doc(db, 'transactions', tx.id), tx);
+        await setDoc(doc(db, 'transactions', tx.id), sanitizeForFirestore(tx));
       }
       for (const sp of INITIAL_STOCK_PURCHASES) {
-        await setDoc(doc(db, 'stockPurchases', sp.id), sp);
+        await setDoc(doc(db, 'stockPurchases', sp.id), sanitizeForFirestore(sp));
       }
     } catch (e) {
       console.warn('Seeding initial data into Firestore:', e);
@@ -346,14 +370,14 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         fullName,
         role,
         phone: '-',
-        email: user.email || undefined,
+        email: user.email || '',
         avatarColor: role === 'super_admin' ? 'bg-indigo-600' : 'bg-emerald-600',
         createdAt: new Date().toISOString(),
         status: 'active'
       };
 
       setCurrentUser(account);
-      await setDoc(doc(db, 'userAccounts', user.uid), account, { merge: true });
+      await setDoc(doc(db, 'userAccounts', user.uid), sanitizeForFirestore(account), { merge: true });
 
       sound.playSuccess(settings.enableSound);
       return { 
@@ -491,17 +515,17 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       // Write directly to Firestore
       for (const p of newProducts) {
-        await setDoc(doc(db, 'products', p.id), p);
+        await setDoc(doc(db, 'products', p.id), sanitizeForFirestore(p));
       }
       for (const t of newTransactions) {
-        await setDoc(doc(db, 'transactions', t.id), t);
+        await setDoc(doc(db, 'transactions', t.id), sanitizeForFirestore(t));
       }
       for (const sp of newStockPurchases) {
-        await setDoc(doc(db, 'stockPurchases', sp.id), sp);
+        await setDoc(doc(db, 'stockPurchases', sp.id), sanitizeForFirestore(sp));
       }
-      await setDoc(doc(db, 'settings', 'store'), newSettings);
+      await setDoc(doc(db, 'settings', 'store'), sanitizeForFirestore(newSettings));
       for (const u of newUsers) {
-        await setDoc(doc(db, 'userAccounts', u.id), u);
+        await setDoc(doc(db, 'userAccounts', u.id), sanitizeForFirestore(u));
       }
 
       sound.playSuccess(settings.enableSound);
@@ -521,11 +545,13 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const newUser: UserAccount = {
       ...userData,
       id: `usr-kasir-${Date.now()}`,
+      phone: userData.phone || '-',
+      email: userData.email || '',
       createdAt: new Date().toISOString(),
     };
 
     setUsers(prev => [...prev, newUser]);
-    setDoc(doc(db, 'userAccounts', newUser.id), newUser).catch(e => 
+    setDoc(doc(db, 'userAccounts', newUser.id), sanitizeForFirestore(newUser)).catch(e => 
       handleFirestoreError(e, OperationType.CREATE, `userAccounts/${newUser.id}`)
     );
 
@@ -546,7 +572,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentUser(prev => (prev ? { ...prev, ...updates } : null));
     }
 
-    updateDoc(doc(db, 'userAccounts', id), updates).catch(e => 
+    updateDoc(doc(db, 'userAccounts', id), sanitizeForFirestore(updates)).catch(e => 
       handleFirestoreError(e, OperationType.UPDATE, `userAccounts/${id}`)
     );
 
@@ -583,11 +609,13 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       id: `prod-${Date.now()}`,
       price: roundedPrice,
       costPrice: roundedCost,
+      imageUrl: productData.imageUrl || '',
+      description: productData.description || '',
       updatedAt: new Date().toISOString(),
     };
 
     setProducts(prev => [newProduct, ...prev]);
-    setDoc(doc(db, 'products', newProduct.id), newProduct).catch(e => 
+    setDoc(doc(db, 'products', newProduct.id), sanitizeForFirestore(newProduct)).catch(e => 
       handleFirestoreError(e, OperationType.CREATE, `products/${newProduct.id}`)
     );
 
@@ -604,7 +632,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
-    const cleanUpdates = { ...updates, updatedAt: new Date().toISOString() };
+    const cleanUpdates = sanitizeForFirestore({ ...updates, updatedAt: new Date().toISOString() });
     if (cleanUpdates.price !== undefined) cleanUpdates.price = Math.max(0, Math.round(cleanUpdates.price));
     if (cleanUpdates.costPrice !== undefined) cleanUpdates.costPrice = Math.max(0, Math.round(cleanUpdates.costPrice));
 
@@ -749,8 +777,8 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       paymentMethod: data.paymentMethod,
       cashGiven: data.paymentMethod === 'cash' ? data.cashGiven : total,
       change,
-      customerName: data.customerName?.trim() || undefined,
-      note: data.note?.trim() || undefined,
+      customerName: data.customerName?.trim() || '',
+      note: data.note?.trim() || '',
     };
 
     // Calculate deducted stocks
@@ -771,18 +799,18 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const cartCopy = [...cart];
     setCart([]);
 
-    // Save directly to Firestore
-    setDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch(e => 
+    // Save directly to Firestore with real-time replication
+    setDoc(doc(db, 'transactions', newTransaction.id), sanitizeForFirestore(newTransaction)).catch(e => 
       handleFirestoreError(e, OperationType.CREATE, `transactions/${newTransaction.id}`)
     );
 
     for (const ci of cartCopy) {
       const matched = updatedProducts.find(p => p.id === ci.product.id);
       if (matched) {
-        updateDoc(doc(db, 'products', matched.id), { 
+        updateDoc(doc(db, 'products', matched.id), sanitizeForFirestore({ 
           stock: matched.stock, 
           updatedAt: new Date().toISOString() 
-        }).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
+        })).catch(e => handleFirestoreError(e, OperationType.UPDATE, `products/${matched.id}`));
       }
     }
 
@@ -845,7 +873,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setStockPurchases(prev => [newPurchase, ...prev]);
 
-    setDoc(doc(db, 'stockPurchases', newPurchase.id), newPurchase).catch(e => 
+    setDoc(doc(db, 'stockPurchases', newPurchase.id), sanitizeForFirestore(newPurchase)).catch(e => 
       handleFirestoreError(e, OperationType.CREATE, `stockPurchases/${newPurchase.id}`)
     );
 
@@ -867,7 +895,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     setStockPurchases(prev => prev.map(sp => sp.id === id ? { ...sp, ...updates } : sp));
 
-    updateDoc(doc(db, 'stockPurchases', id), updates).catch(e => 
+    updateDoc(doc(db, 'stockPurchases', id), sanitizeForFirestore(updates)).catch(e => 
       handleFirestoreError(e, OperationType.UPDATE, `stockPurchases/${id}`)
     );
 
@@ -894,7 +922,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const nextSettings = { ...settings, ...newSettings };
     setSettings(nextSettings);
 
-    setDoc(doc(db, 'settings', 'store'), nextSettings, { merge: true }).catch(e => 
+    setDoc(doc(db, 'settings', 'store'), sanitizeForFirestore(nextSettings), { merge: true }).catch(e => 
       handleFirestoreError(e, OperationType.UPDATE, 'settings/store')
     );
 

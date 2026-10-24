@@ -17,6 +17,25 @@ import { db } from '../firebase';
 import { collection, doc, setDoc, getDocs, getDoc } from 'firebase/firestore';
 import { Product, Transaction, StockPurchase, StoreSettings, UserAccount } from '../types';
 
+function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return '' as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const sanitized: Record<string, any> = {};
+    for (const [key, val] of Object.entries(data as Record<string, any>)) {
+      if (val !== undefined) {
+        sanitized[key] = sanitizeForFirestore(val);
+      }
+    }
+    return sanitized as T;
+  }
+  return data;
+}
+
 interface MigrationModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -296,7 +315,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({ isOpen, onClose,
           if (existing.exists() && skipExisting) {
             // Skip
           } else {
-            await setDoc(settingRef, localStats.rawData.settings, { merge: true });
+            await setDoc(settingRef, sanitizeForFirestore(localStats.rawData.settings), { merge: true });
             result.settingsSuccess = true;
           }
         } catch (e: any) {
@@ -317,7 +336,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({ isOpen, onClose,
             if (snap.exists() && skipExisting) {
               result.usersSkipped++;
             } else {
-              await setDoc(userRef, { ...user, id: cleanId }, { merge: true });
+              await setDoc(userRef, sanitizeForFirestore({ ...user, id: cleanId }), { merge: true });
               result.usersSuccess++;
             }
           } catch (e: any) {
@@ -339,7 +358,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({ isOpen, onClose,
             if (snap.exists() && skipExisting) {
               result.productsSkipped++;
             } else {
-              await setDoc(prodRef, { ...prod, id: cleanId }, { merge: true });
+              await setDoc(prodRef, sanitizeForFirestore({ ...prod, id: cleanId }), { merge: true });
               result.productsSuccess++;
             }
           } catch (e: any) {
@@ -361,7 +380,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({ isOpen, onClose,
             if (snap.exists() && skipExisting) {
               result.transactionsSkipped++;
             } else {
-              await setDoc(txRef, { ...tx, id: cleanId }, { merge: true });
+              await setDoc(txRef, sanitizeForFirestore({ ...tx, id: cleanId }), { merge: true });
               result.transactionsSuccess++;
             }
           } catch (e: any) {
@@ -383,7 +402,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({ isOpen, onClose,
             if (snap.exists() && skipExisting) {
               result.stockPurchasesSkipped++;
             } else {
-              await setDoc(spRef, { ...sp, id: cleanId }, { merge: true });
+              await setDoc(spRef, sanitizeForFirestore({ ...sp, id: cleanId }), { merge: true });
               result.stockPurchasesSuccess++;
             }
           } catch (e: any) {
