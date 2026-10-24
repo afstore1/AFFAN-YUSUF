@@ -124,55 +124,7 @@ export const LoginView: React.FC = () => {
 
       {/* Main Login Card */}
       <div className="w-full max-w-lg bg-slate-900/90 backdrop-blur-xl border border-slate-800/80 rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10">
-        {/* Google One-Click Login Button */}
-        <div className="mb-6">
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            disabled={isGoogleLoading}
-            className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-bold text-sm shadow-xl flex items-center justify-center gap-3 transition-all cursor-pointer border border-slate-200 active:scale-[0.99]"
-          >
-            {isGoogleLoading ? (
-              <div className="w-5 h-5 border-2 border-slate-900/30 border-t-slate-900 rounded-full animate-spin" />
-            ) : (
-              <>
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12s.45 3.84 1.25 5.42l4.03-3.15z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
-                  />
-                </svg>
-                <span>Masuk Cepat dengan Akun Google</span>
-                <Sparkles className="w-4 h-4 text-amber-500" />
-              </>
-            )}
-          </button>
-          <p className="text-[11px] text-slate-400 text-center mt-2">
-            Data otomatis tersinkronisasi antar perangkat & akun Google Anda secara realtime.
-          </p>
-        </div>
-
-        {/* Divider */}
-        <div className="relative flex items-center justify-center my-5">
-          <div className="border-t border-slate-800 w-full" />
-          <span className="bg-slate-900 px-3 text-xs text-slate-500 uppercase tracking-wider shrink-0 font-medium">
-            Atau Masuk dengan Akun Kasir
-          </span>
-          <div className="border-t border-slate-800 w-full" />
-        </div>
-
+        
         {/* Role Tabs */}
         <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-950/70 border border-slate-800 rounded-2xl mb-4">
           <button
@@ -231,7 +183,7 @@ export const LoginView: React.FC = () => {
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                placeholder={selectedRole === 'super_admin' ? 'Masukkan username Super Admin' : 'Masukkan username Anggota'}
+                placeholder={selectedRole === 'super_admin' ? 'Masukkan username Super Admin (mis: admin)' : 'Masukkan username Kasir (mis: budi_kasir)'}
                 autoComplete="username"
                 className="w-full pl-10 pr-4 py-2.5 bg-slate-950/70 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 transition"
               />
@@ -288,6 +240,55 @@ export const LoginView: React.FC = () => {
             )}
           </button>
         </form>
+
+        {/* Divider */}
+        <div className="relative flex items-center justify-center my-5">
+          <div className="border-t border-slate-800 w-full" />
+          <span className="bg-slate-900 px-3 text-xs text-slate-500 uppercase tracking-wider shrink-0 font-medium">
+            Atau
+          </span>
+          <div className="border-t border-slate-800 w-full" />
+        </div>
+
+        {/* Google One-Click Login Button */}
+        <div>
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={isGoogleLoading}
+            className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700/80 text-slate-200 rounded-xl font-semibold text-xs border border-slate-700 flex items-center justify-center gap-2.5 transition-all cursor-pointer"
+          >
+            {isGoogleLoading ? (
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : (
+              <>
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <path
+                    fill="#4285F4"
+                    d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.36 24 12 24z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.16 0 9.97 0 12s.45 3.84 1.25 5.42l4.03-3.15z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                  />
+                </svg>
+                <span>Masuk Cepat dengan Akun Google</span>
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-slate-400 text-center mt-2.5">
+            Cloud Realtime otomatis aktif seketika untuk semua perangkat kasir dan admin.
+          </p>
+        </div>
       </div>
 
       {/* Footer Info */}

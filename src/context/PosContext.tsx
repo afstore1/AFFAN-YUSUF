@@ -181,43 +181,42 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           console.warn('Syncing user account to Firestore:', e);
         }
       } else {
-        // If logged out from Firebase, clear user session
-        setCurrentUser(null);
+        // If not signed in via Google, keep staff credential login session if active
+        setCurrentUser(prev => {
+          if (prev && prev.id && prev.id.startsWith('usr-')) {
+            return prev;
+          }
+          return null;
+        });
       }
     });
 
     return () => unsubscribeAuth();
   }, []);
 
-  // Always listen to store settings in real time (public read allowed by Firestore rules)
+  // 2. Real-time Firestore synchronizer: Active ALWAYS for multi-device realtime cloud access
   useEffect(() => {
+    setSyncStatus('syncing');
+
+    // Realtime Store Settings listener
     const unsubSettings = onSnapshot(
       doc(db, 'settings', 'store'),
       (docSnap) => {
         if (docSnap.exists()) {
           const storeData = docSnap.data() as StoreSettings;
           setSettings(storeData);
-        } else if (auth.currentUser) {
+        } else {
           setDoc(doc(db, 'settings', 'store'), sanitizeForFirestore(INITIAL_SETTINGS)).catch(() => {});
         }
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
       },
       (error) => {
-        console.warn('Realtime settings fallback:', error.message);
+        console.warn('Realtime settings error:', error.message);
       }
     );
-    return () => unsubSettings();
-  }, []);
 
-  // 2. Real-time Firestore synchronizer: Attached whenever authenticated
-  useEffect(() => {
-    if (!firebaseUser) {
-      setSyncStatus('offline');
-      return;
-    }
-
-    setSyncStatus('syncing');
-
-    // Realtime Products listener
+    // Realtime Products listener (auto-sync stock and catalog across all devices)
     const unsubProducts = onSnapshot(
       collection(db, 'products'),
       (snapshot) => {
@@ -227,7 +226,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             prods.push(docSnap.data() as Product);
           });
           setProducts(prods);
-        } else if (!isSeedingRef.current && auth.currentUser) {
+        } else if (!isSeedingRef.current) {
           seedInitialData();
         }
         setSyncStatus('synced');
@@ -235,11 +234,11 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       },
       (error) => {
         setSyncStatus('error');
-        handleFirestoreError(error, OperationType.GET, 'products');
+        console.warn('Products sync error:', error.message);
       }
     );
 
-    // Realtime Transactions listener
+    // Realtime Transactions listener (auto-sync sales receipts across all devices)
     const unsubTransactions = onSnapshot(
       collection(db, 'transactions'),
       (snapshot) => {
@@ -254,7 +253,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       },
       (error) => {
         setSyncStatus('error');
-        handleFirestoreError(error, OperationType.GET, 'transactions');
+        console.warn('Transactions sync error:', error.message);
       }
     );
 
@@ -273,11 +272,11 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       },
       (error) => {
         setSyncStatus('error');
-        handleFirestoreError(error, OperationType.GET, 'stockPurchases');
+        console.warn('Stock purchases sync error:', error.message);
       }
     );
 
-    // Realtime User Accounts listener
+    // Realtime User Accounts listener (allows multi-device cashier logins)
     const unsubUsers = onSnapshot(
       collection(db, 'userAccounts'),
       (snapshot) => {
@@ -287,27 +286,30 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             us.push(docSnap.data() as UserAccount);
           });
           setUsers(us);
+        } else if (!isSeedingRef.current) {
+          seedInitialData();
         }
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
       },
       (error) => {
         setSyncStatus('error');
-        handleFirestoreError(error, OperationType.GET, 'userAccounts');
+        console.warn('Users sync error:', error.message);
       }
     );
 
     return () => {
+      unsubSettings();
       unsubProducts();
       unsubTransactions();
       unsubStockPurchases();
       unsubUsers();
     };
-  }, [firebaseUser]);
+  }, []);
 
   // Seed default data directly into Firestore if remote collection is empty
   const seedInitialData = async () => {
-    if (isSeedingRef.current || !auth.currentUser) return;
+    if (isSeedingRef.current) return;
     isSeedingRef.current = true;
     try {
       for (const prod of INITIAL_PRODUCTS) {
@@ -430,14 +432,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Manual trigger to pull fresh data from Firestore
   const syncWithServer = async (silent: boolean = false): Promise<{ success: boolean; message: string }> => {
-    if (!auth.currentUser) {
-      if (!silent) setSyncStatus('offline');
-      return { 
-        success: false, 
-        message: 'Koneksi Cloud Realtime memerlukan login dengan Akun Google. Silakan klik tombol Google untuk menghubungkan.' 
-      };
-    }
-
     try {
       if (!silent) setSyncStatus('syncing');
 

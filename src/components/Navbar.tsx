@@ -153,39 +153,27 @@ export const Navbar: React.FC<{
 
           {/* Right Section: Cloud Sync, Migration Tool, Clock, Sound, User info, Logout */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-            {/* Google Cloud Realtime Multi-Account Sync Button */}
+            {/* Google Cloud Realtime Multi-Device Sync Indicator & Button */}
             <button
               type="button"
-              onClick={async () => {
-                if (!firebaseUser) {
-                  await signInWithGoogle();
-                } else {
-                  await syncWithServer(false);
-                }
-              }}
-              title={
-                firebaseUser
-                  ? `Google Cloud Realtime Aktif (${firebaseUser.email || 'Akun Google'}). Terakhir sinkron: ${lastSyncTime || 'Baru saja'}. Klik untuk cek koneksi.`
-                  : 'Cloud Realtime belum terhubung. Klik untuk masuk dengan Akun Google.'
-              }
+              onClick={() => syncWithServer(false)}
+              title={`Google Cloud Realtime Aktif. Terakhir sinkron: ${lastSyncTime || 'Baru saja'}. Klik untuk menyegarkan data.`}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs transition cursor-pointer ${
-                syncStatus === 'synced'
-                  ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-950'
-                  : syncStatus === 'syncing'
+                syncStatus === 'syncing'
                   ? 'bg-amber-950/50 border-amber-800/60 text-amber-300'
-                  : 'bg-slate-800/90 border-slate-700 text-slate-300 hover:text-white'
+                  : 'bg-emerald-950/60 border-emerald-800/80 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-950'
               }`}
             >
-              {syncStatus === 'synced' ? (
+              {syncStatus === 'syncing' ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+              ) : (
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
                 </span>
-              ) : (
-                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin text-amber-400' : 'text-slate-400'}`} />
               )}
               <span className="hidden md:inline font-bold text-[11px] tracking-tight">
-                {syncStatus === 'synced' ? 'Cloud Realtime Aktif' : syncStatus === 'syncing' ? 'Sinkron Cloud...' : 'Hubungkan Cloud'}
+                {syncStatus === 'syncing' ? 'Sinkron Cloud...' : 'Cloud Realtime Aktif'}
               </span>
             </button>
 

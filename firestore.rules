@@ -2,43 +2,37 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: Is user authenticated
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
     // Healthcheck / test connection route
     match /test/{docId} {
       allow read, write: if true;
     }
 
-    // Shared Store Settings: Allow read for store name & branding on login screen, authenticated write
+    // Shared Store Settings: Store logo, name, taxes, and receipt config
     match /settings/{settingId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Shared Store Catalog: All signed-in accounts read and sync in real-time
+    // Shared Store Catalog: Real-time products, prices, and inventory stock
     match /products/{productId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Shared Store Transactions: Real-time cashier receipts and sales
     match /transactions/{transactionId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Shared Stock Purchases: Real-time restock expense tracking
     match /stockPurchases/{purchaseId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // User Accounts: Staff accounts directory
+    // User Accounts Directory: Multi-device cashier & admin accounts
     match /userAccounts/{userId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Catch-all deny for unauthenticated access or unknown collections
+    // Deny all other unknown collections
     match /{document=**} {
       allow read, write: if false;
     }
