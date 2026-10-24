@@ -13,14 +13,12 @@ import {
   UserCheck,
   Store,
   Clock,
-  RefreshCw,
-  Database
+  RefreshCw
 } from 'lucide-react';
 
 export const Navbar: React.FC<{ 
   onOpenSettings?: () => void;
-  onOpenMigration?: () => void;
-}> = ({ onOpenSettings, onOpenMigration }) => {
+}> = ({ onOpenSettings }) => {
   const { 
     currentUser, 
     logout, 
@@ -183,19 +181,6 @@ export const Navbar: React.FC<{
                 {syncStatus === 'synced' ? 'Cloud Realtime Aktif' : syncStatus === 'syncing' ? 'Sinkron Cloud...' : 'Cloud Realtime'}
               </span>
             </button>
-
-            {/* Migration Tool Button */}
-            {onOpenMigration && (
-              <button
-                type="button"
-                onClick={onOpenMigration}
-                title="Pusat Migrasi Data LocalStorage ke Google Cloud Realtime"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-indigo-700/60 bg-indigo-950/50 hover:bg-indigo-900/60 text-indigo-300 text-xs transition cursor-pointer font-medium"
-              >
-                <Database className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="hidden lg:inline text-[11px]">Migrasi Data</span>
-              </button>
-            )}
 
             {/* Live Clock */}
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-950/60 border border-slate-800 text-slate-300 text-xs font-mono">
