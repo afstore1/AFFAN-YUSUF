@@ -194,20 +194,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
               <Database className="w-4 h-4 text-indigo-400" />
               <h4 className="text-xs font-bold text-indigo-200">Sinkronisasi Cloud & Multi-Akun Google</h4>
             </div>
-            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold border ${
               syncStatus === 'synced'
                 ? 'bg-emerald-950/60 border-emerald-800 text-emerald-300'
                 : syncStatus === 'syncing'
                 ? 'bg-amber-950/60 border-amber-800 text-amber-300'
                 : 'bg-slate-800 border-slate-700 text-slate-300'
             }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${syncStatus === 'synced' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-              {syncStatus === 'synced' ? 'Server Aktif' : syncStatus === 'syncing' ? 'Menyinkronkan' : 'Lokal'}
+              <span className={`w-1.5 h-1.5 rounded-full ${syncStatus === 'synced' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              {syncStatus === 'synced' ? 'Cloud Realtime Aktif' : syncStatus === 'syncing' ? 'Menyinkronkan...' : 'Offline'}
             </span>
           </div>
 
           <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
-            Data transaksi, barang, dan stok kini otomatis tersimpan di server AFSTORE. Saat Anda membuka aplikasi dari akun Google lain, laptop, atau smartphone kasir, data otomatis sama dan terupdate.
+            Data transaksi, barang, dan stok otomatis tersimpan di Google Cloud Realtime Database (Cloud Firestore). Saat Anda membuka aplikasi dari akun Google lain, laptop, atau smartphone kasir, data langsung terupdate secara real-time.
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -230,7 +230,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-purple-600/20"
               >
                 <Database className="w-3.5 h-3.5" />
-                <span>Pusat Migrasi Data LocalStorage</span>
+                <span>Pusat Migrasi Data ke Cloud Realtime</span>
               </button>
             )}
 

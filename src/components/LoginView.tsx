@@ -111,11 +111,14 @@ export const LoginView: React.FC = () => {
           </div>
         </div>
 
-        {/* Cloud Firebase Sync Badge */}
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-xs shadow-inner">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        {/* Google Cloud Realtime Sync Badge */}
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-950/70 border border-emerald-800/80 text-emerald-300 text-xs shadow-inner">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+          </span>
           <CloudCheck className="w-3.5 h-3.5" />
-          <span>Terkait dengan Firebase Cloud Firestore</span>
+          <span className="font-semibold">Google Cloud Realtime Database</span>
         </div>
       </div>
 
@@ -290,7 +293,7 @@ export const LoginView: React.FC = () => {
       {/* Footer Info */}
       <div className="mt-6 text-center text-xs text-slate-500 relative z-10 flex flex-col items-center gap-1">
         <span>AFSTORE Point of Sales • Aman, Cepat, dan Akurat</span>
-        <span className="text-[11px] text-slate-600">Database: Firebase Firestore (Online & Terpusat)</span>
+        <span className="text-[11px] text-slate-500">Database: Google Cloud Realtime (Cloud Firestore Online & Terpusat)</span>
       </div>
     </div>
   );

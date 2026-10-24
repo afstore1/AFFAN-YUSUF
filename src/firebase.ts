@@ -16,11 +16,11 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 
-// CRITICAL: Initialize Firestore with experimentalForceLongPolling to avoid 10-second backend timeout in iframe and sandboxed networks
+// Initialize Google Cloud Firestore with high-speed Cloud Realtime streaming (AutoDetect WebChannel/LongPolling)
 export const db = initializeFirestore(
   app,
   {
-    experimentalForceLongPolling: true,
+    experimentalAutoDetectLongPolling: true,
   },
   firebaseConfig.firestoreDatabaseId
 );

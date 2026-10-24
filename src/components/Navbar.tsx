@@ -154,26 +154,33 @@ export const Navbar: React.FC<{
 
           {/* Right Section: Cloud Sync, Migration Tool, Clock, Sound, User info, Logout */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-            {/* Firebase Multi-Account Cloud Sync Button */}
+            {/* Google Cloud Realtime Multi-Account Sync Button */}
             <button
               type="button"
               onClick={() => syncWithServer(false)}
               title={
                 firebaseUser
-                  ? `Firebase Firestore Terhubung (${firebaseUser.email || 'Akun Google'}). Terakhir sinkron: ${lastSyncTime || 'Baru saja'}. Klik untuk sinkron ulang.`
-                  : 'Firebase belum terhubung. Klik untuk sinkronisasi.'
+                  ? `Google Cloud Realtime Aktif (${firebaseUser.email || 'Akun Google'}). Terakhir sinkron: ${lastSyncTime || 'Baru saja'}. Klik untuk cek koneksi.`
+                  : 'Cloud Realtime belum terhubung. Klik untuk sinkronisasi.'
               }
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs transition cursor-pointer ${
                 syncStatus === 'synced'
-                  ? 'bg-emerald-950/50 border-emerald-800/60 text-emerald-300 hover:bg-emerald-900/50'
+                  ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-300 hover:bg-emerald-900/60 shadow-sm shadow-emerald-950'
                   : syncStatus === 'syncing'
                   ? 'bg-amber-950/50 border-amber-800/60 text-amber-300'
                   : 'bg-slate-800/90 border-slate-700 text-slate-300 hover:text-white'
               }`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin text-amber-400' : 'text-emerald-400'}`} />
-              <span className="hidden md:inline font-medium text-[11px]">
-                {syncStatus === 'synced' ? 'Firebase Aktif' : syncStatus === 'syncing' ? 'Sinkron...' : 'Firebase'}
+              {syncStatus === 'synced' ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                </span>
+              ) : (
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin text-amber-400' : 'text-slate-400'}`} />
+              )}
+              <span className="hidden md:inline font-bold text-[11px] tracking-tight">
+                {syncStatus === 'synced' ? 'Cloud Realtime Aktif' : syncStatus === 'syncing' ? 'Sinkron Cloud...' : 'Cloud Realtime'}
               </span>
             </button>
 
@@ -182,7 +189,7 @@ export const Navbar: React.FC<{
               <button
                 type="button"
                 onClick={onOpenMigration}
-                title="Pusat Migrasi Data LocalStorage ke Firebase Firestore"
+                title="Pusat Migrasi Data LocalStorage ke Google Cloud Realtime"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-indigo-700/60 bg-indigo-950/50 hover:bg-indigo-900/60 text-indigo-300 text-xs transition cursor-pointer font-medium"
               >
                 <Database className="w-3.5 h-3.5 text-indigo-400" />

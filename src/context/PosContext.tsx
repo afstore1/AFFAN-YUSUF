@@ -382,7 +382,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       sound.playSuccess(settings.enableSound);
       return { 
         success: true, 
-        message: `Terhubung langsung ke Firestore dengan akun Google: ${user.email} (${account.role === 'super_admin' ? 'Super Admin' : 'Anggota Kasir'})` 
+        message: `Terhubung langsung ke Google Cloud Realtime dengan akun Google: ${user.email} (${account.role === 'super_admin' ? 'Super Admin' : 'Anggota Kasir'})` 
       };
     } catch (error: any) {
       console.error('Google Sign In Error:', error);
@@ -461,7 +461,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
       setSyncStatus('synced');
       setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
-      return { success: true, message: 'Semua data toko berhasil diperbarui langsung dari Cloud Firestore!' };
+      return { success: true, message: 'Semua data toko berhasil diperbarui langsung dari Google Cloud Realtime Database!' };
     } catch (err: any) {
       setSyncStatus('error');
       handleFirestoreError(err, OperationType.GET, 'sync');
@@ -529,7 +529,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
 
       sound.playSuccess(settings.enableSound);
-      return { success: true, message: 'Data cadangan berhasil dipulihkan dan disimpan langsung ke Firestore!' };
+      return { success: true, message: 'Data cadangan berhasil dipulihkan dan disimpan langsung ke Cloud Realtime Database!' };
     } catch (err: any) {
       return { success: false, message: 'Gagal memulihkan cadangan: ' + err.message };
     }
@@ -556,7 +556,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: `Akun anggota "${newUser.fullName}" berhasil disimpan ke Firestore.` };
+    return { success: true, message: `Akun anggota "${newUser.fullName}" berhasil disimpan ke Cloud Realtime.` };
   };
 
   const updateUser = (id: string, updates: Partial<UserAccount>): { success: boolean; message: string } => {
@@ -577,7 +577,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Data akun berhasil diperbarui di Firestore.' };
+    return { success: true, message: 'Data akun berhasil diperbarui di Cloud Realtime.' };
   };
 
   const deleteUser = (id: string): { success: boolean; message: string } => {
@@ -591,7 +591,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playClick(settings.enableSound);
-    return { success: true, message: `Akun "${target.fullName}" berhasil dihapus dari Firestore.` };
+    return { success: true, message: `Akun "${target.fullName}" berhasil dihapus dari Cloud Realtime.` };
   };
 
   // Product Management directly to Firestore
@@ -620,7 +620,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: `Barang "${newProduct.name}" berhasil disimpan ke Firestore.` };
+    return { success: true, message: `Barang "${newProduct.name}" berhasil disimpan ke Cloud Realtime.` };
   };
 
   const updateProduct = (id: string, updates: Partial<Product>): { success: boolean; message: string } => {
@@ -643,7 +643,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Data barang berhasil diperbarui di Firestore.' };
+    return { success: true, message: 'Data barang berhasil diperbarui di Cloud Realtime.' };
   };
 
   const deleteProduct = (id: string): { success: boolean; message: string } => {
@@ -658,7 +658,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playClick(settings.enableSound);
-    return { success: true, message: `Barang "${target.name}" berhasil dihapus dari Firestore.` };
+    return { success: true, message: `Barang "${target.name}" berhasil dihapus dari Cloud Realtime.` };
   };
 
   const adjustStock = (id: string, deltaAmount: number) => {
@@ -686,7 +686,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: `Stok "${target.name}" berhasil diubah menjadi ${validStock} ${target.unit} di Firestore.` };
+    return { success: true, message: `Stok "${target.name}" berhasil diubah menjadi ${validStock} ${target.unit} di Cloud Realtime.` };
   };
 
   // Cart Management
@@ -853,7 +853,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     sound.playClick(settings.enableSound);
-    return { success: true, message: `Struk "${target.receiptNumber}" berhasil dihapus dari Firestore.` };
+    return { success: true, message: `Struk "${target.receiptNumber}" berhasil dihapus dari Cloud Realtime.` };
   };
 
   // Stock Purchase methods directly to Firestore
@@ -878,7 +878,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Catatan belanja stok barang berhasil disimpan ke Firestore.' };
+    return { success: true, message: 'Catatan belanja stok barang berhasil disimpan ke Cloud Realtime.' };
   };
 
   const updateStockPurchase = (id: string, data: { date: string; amount: number; description: string }): { success: boolean; message: string } => {
@@ -900,7 +900,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playSuccess(settings.enableSound);
-    return { success: true, message: 'Catatan belanja stok barang berhasil diperbarui di Firestore.' };
+    return { success: true, message: 'Catatan belanja stok barang berhasil diperbarui di Cloud Realtime.' };
   };
 
   const deleteStockPurchase = (id: string): { success: boolean; message: string } => {
@@ -914,7 +914,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     );
 
     sound.playClick(settings.enableSound);
-    return { success: true, message: 'Catatan belanja stok barang berhasil dihapus dari Firestore.' };
+    return { success: true, message: 'Catatan belanja stok barang berhasil dihapus dari Cloud Realtime.' };
   };
 
   // Settings directly to Firestore

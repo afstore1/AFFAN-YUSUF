@@ -201,7 +201,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({ isOpen, onClose,
           exportType: 'LOCALSTORAGE_BACKUP',
           version: '1.0',
           exportedAt: new Date().toISOString(),
-          description: 'Cadangan data asli dari localStorage browser sebelum migrasi ke Firebase Cloud Firestore',
+          description: 'Cadangan data asli dari localStorage browser sebelum migrasi ke Google Cloud Realtime (Cloud Firestore)',
         },
         data: localStats.rawData,
       };
@@ -421,7 +421,7 @@ export const MigrationModal: React.FC<MigrationModalProps> = ({ isOpen, onClose,
       if (result.errors.length === 0) {
         setStatusMessage({
           type: 'success',
-          text: 'Migrasi selesai tanpa kesalahan! Semua data berhasil diamankan di Firebase Cloud Firestore.',
+          text: 'Migrasi selesai tanpa kesalahan! Semua data berhasil diamankan di Google Cloud Realtime (Cloud Firestore).',
         });
       } else {
         setStatusMessage({
