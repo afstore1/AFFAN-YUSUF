@@ -189,6 +189,25 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return () => unsubscribeAuth();
   }, []);
 
+  // Always listen to store settings in real time (public read allowed by Firestore rules)
+  useEffect(() => {
+    const unsubSettings = onSnapshot(
+      doc(db, 'settings', 'store'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const storeData = docSnap.data() as StoreSettings;
+          setSettings(storeData);
+        } else if (auth.currentUser) {
+          setDoc(doc(db, 'settings', 'store'), sanitizeForFirestore(INITIAL_SETTINGS)).catch(() => {});
+        }
+      },
+      (error) => {
+        console.warn('Realtime settings fallback:', error.message);
+      }
+    );
+    return () => unsubSettings();
+  }, []);
+
   // 2. Real-time Firestore synchronizer: Attached whenever authenticated
   useEffect(() => {
     if (!firebaseUser) {
@@ -208,7 +227,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             prods.push(docSnap.data() as Product);
           });
           setProducts(prods);
-        } else if (!isSeedingRef.current) {
+        } else if (!isSeedingRef.current && auth.currentUser) {
           seedInitialData();
         }
         setSyncStatus('synced');
@@ -258,25 +277,6 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     );
 
-    // Realtime Store Settings listener
-    const unsubSettings = onSnapshot(
-      doc(db, 'settings', 'store'),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const storeData = docSnap.data() as StoreSettings;
-          setSettings(storeData);
-        } else {
-          setDoc(doc(db, 'settings', 'store'), INITIAL_SETTINGS).catch(() => {});
-        }
-        setSyncStatus('synced');
-        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
-      },
-      (error) => {
-        setSyncStatus('error');
-        handleFirestoreError(error, OperationType.GET, 'settings/store');
-      }
-    );
-
     // Realtime User Accounts listener
     const unsubUsers = onSnapshot(
       collection(db, 'userAccounts'),
@@ -301,14 +301,13 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       unsubProducts();
       unsubTransactions();
       unsubStockPurchases();
-      unsubSettings();
       unsubUsers();
     };
   }, [firebaseUser]);
 
   // Seed default data directly into Firestore if remote collection is empty
   const seedInitialData = async () => {
-    if (isSeedingRef.current) return;
+    if (isSeedingRef.current || !auth.currentUser) return;
     isSeedingRef.current = true;
     try {
       for (const prod of INITIAL_PRODUCTS) {
@@ -431,6 +430,14 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Manual trigger to pull fresh data from Firestore
   const syncWithServer = async (silent: boolean = false): Promise<{ success: boolean; message: string }> => {
+    if (!auth.currentUser) {
+      if (!silent) setSyncStatus('offline');
+      return { 
+        success: false, 
+        message: 'Koneksi Cloud Realtime memerlukan login dengan Akun Google. Silakan klik tombol Google untuk menghubungkan.' 
+      };
+    }
+
     try {
       if (!silent) setSyncStatus('syncing');
 
@@ -464,7 +471,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return { success: true, message: 'Semua data toko berhasil diperbarui langsung dari Google Cloud Realtime Database!' };
     } catch (err: any) {
       setSyncStatus('error');
-      handleFirestoreError(err, OperationType.GET, 'sync');
+      console.warn('Sync with server error:', err.message);
       return { success: false, message: 'Gagal memperbarui: ' + err.message };
     }
   };

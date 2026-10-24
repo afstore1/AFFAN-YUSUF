@@ -12,6 +12,12 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Shared Store Settings: Allow read for store name & branding on login screen, authenticated write
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
     // Shared Store Catalog: All signed-in accounts read and sync in real-time
     match /products/{productId} {
       allow read, write: if isSignedIn();
@@ -24,11 +30,6 @@ service cloud.firestore {
 
     // Shared Stock Purchases: Real-time restock expense tracking
     match /stockPurchases/{purchaseId} {
-      allow read, write: if isSignedIn();
-    }
-
-    // Shared Store Settings: Real-time store name, address, tax & receipt configuration
-    match /settings/{settingId} {
       allow read, write: if isSignedIn();
     }
 

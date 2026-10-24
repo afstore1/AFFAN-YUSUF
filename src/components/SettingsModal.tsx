@@ -32,7 +32,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     lastSyncTime, 
     syncWithServer, 
     exportBackupData, 
-    importBackupData 
+    importBackupData,
+    firebaseUser,
+    signInWithGoogle
   } = usePos();
 
   const [storeName, setStoreName] = useState(settings.storeName);
@@ -113,6 +115,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   };
 
   const handleManualSync = async () => {
+    if (!firebaseUser) {
+      const gRes = await signInWithGoogle();
+      if (!gRes.success) {
+        setSyncFeedback(gRes.message);
+        setTimeout(() => setSyncFeedback(null), 3500);
+        return;
+      }
+    }
     const res = await syncWithServer(false);
     setSyncFeedback(res.message);
     setTimeout(() => setSyncFeedback(null), 3500);

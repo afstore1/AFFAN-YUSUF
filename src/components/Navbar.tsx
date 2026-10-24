@@ -30,6 +30,7 @@ export const Navbar: React.FC<{
     syncStatus,
     lastSyncTime,
     syncWithServer,
+    signInWithGoogle,
     firebaseUser
   } = usePos();
   const [currentTime, setCurrentTime] = useState<string>('');
@@ -155,11 +156,17 @@ export const Navbar: React.FC<{
             {/* Google Cloud Realtime Multi-Account Sync Button */}
             <button
               type="button"
-              onClick={() => syncWithServer(false)}
+              onClick={async () => {
+                if (!firebaseUser) {
+                  await signInWithGoogle();
+                } else {
+                  await syncWithServer(false);
+                }
+              }}
               title={
                 firebaseUser
                   ? `Google Cloud Realtime Aktif (${firebaseUser.email || 'Akun Google'}). Terakhir sinkron: ${lastSyncTime || 'Baru saja'}. Klik untuk cek koneksi.`
-                  : 'Cloud Realtime belum terhubung. Klik untuk sinkronisasi.'
+                  : 'Cloud Realtime belum terhubung. Klik untuk masuk dengan Akun Google.'
               }
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs transition cursor-pointer ${
                 syncStatus === 'synced'
@@ -178,7 +185,7 @@ export const Navbar: React.FC<{
                 <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin text-amber-400' : 'text-slate-400'}`} />
               )}
               <span className="hidden md:inline font-bold text-[11px] tracking-tight">
-                {syncStatus === 'synced' ? 'Cloud Realtime Aktif' : syncStatus === 'syncing' ? 'Sinkron Cloud...' : 'Cloud Realtime'}
+                {syncStatus === 'synced' ? 'Cloud Realtime Aktif' : syncStatus === 'syncing' ? 'Sinkron Cloud...' : 'Hubungkan Cloud'}
               </span>
             </button>
 
