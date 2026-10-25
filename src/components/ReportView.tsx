@@ -23,7 +23,10 @@ import {
   ShoppingBag,
   Edit3,
   ArrowDownRight,
-  Info
+  Info,
+  ChevronDown,
+  ChevronUp,
+  PackageCheck
 } from 'lucide-react';
 
 export const ReportView: React.FC = () => {
@@ -43,8 +46,13 @@ export const ReportView: React.FC = () => {
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
-  // Sub-tab view: 'receipts', 'purchases' (Update Stok Barang / Belanja Stok), or 'catalog'
-  const [activeSubTab, setActiveSubTab] = useState<'receipts' | 'purchases' | 'catalog'>('receipts');
+  // Sub-tab view: 'receipts', 'soldItems', 'purchases' (Update Stok Barang / Belanja Stok), or 'catalog'
+  const [activeSubTab, setActiveSubTab] = useState<'receipts' | 'soldItems' | 'purchases' | 'catalog'>('receipts');
+  const [expandedTxIds, setExpandedTxIds] = useState<Record<string, boolean>>({});
+
+  const toggleExpandTx = (id: string) => {
+    setExpandedTxIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
   // Filters for Receipts & Purchases
   const [dateFilter, setDateFilter] = useState<'today' | '7days' | '30days' | 'all'>('all');
@@ -164,6 +172,76 @@ export const ReportView: React.FC = () => {
       .slice(0, 5);
   }, [filteredTransactions]);
 
+  // History seluruh barang yang terjual, diambil persis dari rincian struk transaksi
+  const soldItemsHistory = useMemo(() => {
+    const list: {
+      id: string;
+      transactionId: string;
+      receiptNumber: string;
+      date: string;
+      cashierName: string;
+      cashierRole: string;
+      customerName: string;
+      paymentMethod: string;
+      productId: string;
+      code: string;
+      name: string;
+      price: number;
+      quantity: number;
+      unit: string;
+      subtotal: number;
+      originalTx: Transaction;
+    }[] = [];
+
+    filteredTransactions.forEach(tx => {
+      if (Array.isArray(tx.items)) {
+        tx.items.forEach((item, itemIdx) => {
+          list.push({
+            id: `${tx.id}-${item.productId || itemIdx}-${itemIdx}`,
+            transactionId: tx.id,
+            receiptNumber: tx.receiptNumber,
+            date: tx.date,
+            cashierName: tx.cashierName,
+            cashierRole: tx.cashierRole,
+            customerName: tx.customerName || 'Pelanggan Umum',
+            paymentMethod: tx.paymentMethod,
+            productId: item.productId,
+            code: item.code || '-',
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            unit: item.unit || 'pcs',
+            subtotal: item.subtotal,
+            originalTx: tx,
+          });
+        });
+      }
+    });
+
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [filteredTransactions]);
+
+  // Filter history barang terjual berdasarkan kata kunci pencarian
+  const filteredSoldItems = useMemo(() => {
+    if (!searchQuery.trim()) return soldItemsHistory;
+    const q = searchQuery.toLowerCase().trim();
+    return soldItemsHistory.filter(item =>
+      item.name.toLowerCase().includes(q) ||
+      item.code.toLowerCase().includes(q) ||
+      item.receiptNumber.toLowerCase().includes(q) ||
+      item.cashierName.toLowerCase().includes(q) ||
+      item.customerName.toLowerCase().includes(q)
+    );
+  }, [soldItemsHistory, searchQuery]);
+
+  const totalQuantitySold = useMemo(() => {
+    return filteredSoldItems.reduce((sum, item) => sum + item.quantity, 0);
+  }, [filteredSoldItems]);
+
+  const totalSoldRevenue = useMemo(() => {
+    return filteredSoldItems.reduce((sum, item) => sum + item.subtotal, 0);
+  }, [filteredSoldItems]);
+
   // Handle Delete Transaction Execution
   const handleConfirmDeleteTx = () => {
     if (!txToDelete) return;
@@ -266,13 +344,48 @@ export const ReportView: React.FC = () => {
 
   // Download CSV export
   const handleExportCSV = () => {
+    if (activeSubTab === 'soldItems') {
+      if (filteredSoldItems.length === 0) {
+        alert('Tidak ada data barang terjual untuk diekspor.');
+        return;
+      }
+      const headers = ['No. Nota Struk', 'Tanggal', 'Jam', 'Nama Barang', 'Kode / Barcode', 'Jumlah Terjual', 'Satuan', 'Harga Satuan', 'Subtotal', 'Kasir', 'Pelanggan'];
+      const rows = filteredSoldItems.map(item => [
+        item.receiptNumber,
+        `"${formatDateIndo(item.date)}"`,
+        `"${new Date(item.date).toLocaleTimeString('id-ID')}"`,
+        `"${item.name}"`,
+        `"${item.code}"`,
+        item.quantity,
+        `"${item.unit}"`,
+        item.price,
+        item.subtotal,
+        `"${item.cashierName}"`,
+        `"${item.customerName}"`,
+      ]);
+
+      const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `history-barang-terjual-afstore-${new Date().toISOString().split('T')[0]}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     if (filteredTransactions.length === 0) {
       alert('Tidak ada transaksi untuk diekspor.');
       return;
     }
 
-    const headers = ['No. Nota', 'Tanggal', 'Kasir', 'Pelanggan', 'Metode Bayar', 'Total Belanja', 'Keuntungan/Laba'];
-    const rows = filteredTransactions.map(t => [
+    const headers = isSuperAdmin
+      ? ['No. Nota', 'Tanggal', 'Kasir', 'Pelanggan', 'Metode Bayar', 'Total Belanja', 'Keuntungan/Laba']
+      : ['No. Nota', 'Tanggal', 'Kasir', 'Pelanggan', 'Metode Bayar', 'Total Belanja'];
+
+    const rows = filteredTransactions.map(t => isSuperAdmin ? [
       t.receiptNumber,
       `"${formatDateIndo(t.date)}"`,
       `"${t.cashierName}"`,
@@ -280,6 +393,13 @@ export const ReportView: React.FC = () => {
       t.paymentMethod.toUpperCase(),
       t.total,
       t.totalProfit,
+    ] : [
+      t.receiptNumber,
+      `"${formatDateIndo(t.date)}"`,
+      `"${t.cashierName}"`,
+      `"${t.customerName || 'Umum'}"`,
+      t.paymentMethod.toUpperCase(),
+      t.total,
     ]);
 
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -329,6 +449,20 @@ export const ReportView: React.FC = () => {
             >
               <Receipt className="w-3.5 h-3.5" />
               <span>{isSuperAdmin ? `Riwayat Struk & Laba (${filteredTransactions.length})` : `Riwayat Struk (${filteredTransactions.length})`}</span>
+            </button>
+
+            {/* TAB HISTORY BARANG TERJUAL (SAMA PERSIS DENGAN STRUK PENJUALAN) */}
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('soldItems')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                activeSubTab === 'soldItems'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <ShoppingBag className="w-3.5 h-3.5 text-blue-200" />
+              <span>History Barang Terjual ({soldItemsHistory.length})</span>
             </button>
 
             {/* TAB KHUSUS SUPER ADMIN: UPDATE BELANJA STOK BARANG */}
@@ -507,6 +641,8 @@ export const ReportView: React.FC = () => {
             placeholder={
               activeSubTab === 'purchases'
                 ? "Cari keterangan belanja stok atau nominal..."
+                : activeSubTab === 'soldItems'
+                ? "Cari nama barang, barcode, no nota, kasir, atau pelanggan..."
                 : "Cari no nota, kasir, atau nama pelanggan..."
             }
             className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
@@ -639,92 +775,168 @@ export const ReportView: React.FC = () => {
                     filteredTransactions.map(tx => {
                       const profitMargin = tx.total > 0 ? ((tx.totalProfit / tx.total) * 100).toFixed(0) : '0';
                       const totalModal = tx.total - tx.totalProfit;
+                      const isExpanded = !!expandedTxIds[tx.id];
 
                       return (
-                        <tr key={tx.id} className="hover:bg-slate-800/40 transition">
-                          
-                          {/* No Nota */}
-                          <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">
-                            {tx.receiptNumber}
-                          </td>
-
-                          {/* Date */}
-                          <td className="py-3.5 px-4 text-slate-300 text-xs">
-                            {formatDateIndo(tx.date)}
-                          </td>
-
-                          {/* Cashier */}
-                          <td className="py-3.5 px-4">
-                            <span className="font-semibold text-white">{tx.cashierName}</span>
-                            <span className="block text-[10px] text-slate-400">
-                              {tx.cashierRole === 'super_admin' ? 'Super Admin' : 'Anggota Kasir'}
-                            </span>
-                          </td>
-
-                          {/* Pelanggan */}
-                          <td className="py-3.5 px-4 text-slate-300">
-                            {tx.customerName || 'Pelanggan Umum'}
-                          </td>
-
-                          {/* Total Belanja */}
-                          <td className="py-3.5 px-4 font-extrabold text-white text-xs sm:text-sm">
-                            {formatRupiah(tx.total)}
-                          </td>
-
-                          {/* DEDICATED KEUNTUNGAN COLUMN - KHUSUS SUPER ADMIN */}
-                          {isSuperAdmin && (
-                            <td className="py-3.5 px-4 bg-emerald-950/15 border-x border-emerald-800/20">
+                        <React.Fragment key={tx.id}>
+                          <tr className="hover:bg-slate-800/40 transition">
+                            
+                            {/* No Nota & Expand Toggle */}
+                            <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">
                               <div className="flex items-center gap-1.5">
-                                <span className="font-extrabold text-emerald-400 text-xs sm:text-sm">
-                                  +{formatRupiah(tx.totalProfit)}
-                                </span>
-                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                                  {profitMargin}% Laba
-                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleExpandTx(tx.id)}
+                                  className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-emerald-400 transition cursor-pointer"
+                                  title={isExpanded ? "Tutup rincian barang" : "Buka rincian barang"}
+                                >
+                                  {isExpanded ? (
+                                    <ChevronUp className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                                <span>{tx.receiptNumber}</span>
                               </div>
-                              <span className="text-[10px] text-slate-400 block mt-0.5">
-                                Modal: {formatRupiah(totalModal)}
+                              <span className="block text-[10px] text-slate-500 font-sans font-normal mt-0.5">
+                                {tx.items?.length || 0} jenis barang
                               </span>
                             </td>
+
+                            {/* Date */}
+                            <td className="py-3.5 px-4 text-slate-300 text-xs">
+                              {formatDateIndo(tx.date)}
+                            </td>
+
+                            {/* Cashier */}
+                            <td className="py-3.5 px-4">
+                              <span className="font-semibold text-white">{tx.cashierName}</span>
+                              <span className="block text-[10px] text-slate-400">
+                                {tx.cashierRole === 'super_admin' ? 'Super Admin' : 'Anggota Kasir'}
+                              </span>
+                            </td>
+
+                            {/* Pelanggan */}
+                            <td className="py-3.5 px-4 text-slate-300">
+                              {tx.customerName || 'Pelanggan Umum'}
+                            </td>
+
+                            {/* Total Belanja */}
+                            <td className="py-3.5 px-4 font-extrabold text-white text-xs sm:text-sm">
+                              {formatRupiah(tx.total)}
+                            </td>
+
+                            {/* DEDICATED KEUNTUNGAN COLUMN - KHUSUS SUPER ADMIN */}
+                            {isSuperAdmin && (
+                              <td className="py-3.5 px-4 bg-emerald-950/15 border-x border-emerald-800/20">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-extrabold text-emerald-400 text-xs sm:text-sm">
+                                    +{formatRupiah(tx.totalProfit)}
+                                  </span>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                    {profitMargin}% Laba
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-slate-400 block mt-0.5">
+                                  Modal: {formatRupiah(totalModal)}
+                                </span>
+                              </td>
+                            )}
+
+                            {/* Metode Bayar */}
+                            <td className="py-3.5 px-4">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-950 border border-slate-800 text-slate-300">
+                                {tx.paymentMethod}
+                              </span>
+                            </td>
+
+                            {/* Action Buttons: Print & DELETE */}
+                            <td className="py-3.5 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {/* Print Receipt */}
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedTx(tx)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition cursor-pointer"
+                                  title="Lihat & Cetak Struk Ulang"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  <span>Struk</span>
+                                </button>
+
+                                {/* HAPUS STRUK */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTxToDelete(tx);
+                                    setRestoreStockOnDelete(true);
+                                  }}
+                                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/80 hover:text-rose-300 text-slate-400 transition cursor-pointer"
+                                  title="Hapus Struk Ini"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+
+                          </tr>
+
+                          {/* RINCIAN BARANG TERJUAL SESUAI STRUK INI (EXPANDABLE) */}
+                          {isExpanded && (
+                            <tr className="bg-slate-950/80 border-b border-slate-800">
+                              <td colSpan={isSuperAdmin ? 8 : 7} className="p-4">
+                                <div className="bg-slate-900 border border-slate-800/80 rounded-xl p-3">
+                                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800 text-xs">
+                                    <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                                      <PackageCheck className="w-4 h-4 text-emerald-400" />
+                                      <span>Rincian Barang Terjual pada Struk #{tx.receiptNumber}</span>
+                                    </span>
+                                    <span className="text-slate-400 text-[11px]">
+                                      Total {tx.items?.reduce((s, i) => s + i.quantity, 0) || 0} unit barang
+                                    </span>
+                                  </div>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="text-[10px] uppercase text-slate-400 border-b border-slate-800/60">
+                                        <tr>
+                                          <th className="py-1.5 px-2">No</th>
+                                          <th className="py-1.5 px-2">Nama Barang</th>
+                                          <th className="py-1.5 px-2">Kode / Barcode</th>
+                                          <th className="py-1.5 px-2 text-right">Harga Satuan</th>
+                                          <th className="py-1.5 px-2 text-center">Jumlah (Qty)</th>
+                                          <th className="py-1.5 px-2 text-right">Subtotal</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-800/40 text-slate-300">
+                                        {tx.items?.map((item, idx) => (
+                                          <tr key={idx} className="hover:bg-slate-800/30">
+                                            <td className="py-2 px-2 text-slate-500 font-mono">{idx + 1}</td>
+                                            <td className="py-2 px-2 font-medium text-white">{item.name}</td>
+                                            <td className="py-2 px-2 font-mono text-[11px] text-slate-400">{item.code || '-'}</td>
+                                            <td className="py-2 px-2 text-right text-slate-300">{formatRupiah(item.price)}</td>
+                                            <td className="py-2 px-2 text-center font-bold text-emerald-400">{item.quantity} {item.unit || 'pcs'}</td>
+                                            <td className="py-2 px-2 text-right font-extrabold text-white">{formatRupiah(item.subtotal)}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                      <tfoot className="border-t border-slate-800 font-bold text-xs">
+                                        <tr>
+                                          <td colSpan={4} className="py-2 px-2 text-right text-slate-400">Total Keseluruhan Struk:</td>
+                                          <td className="py-2 px-2 text-center text-emerald-400">
+                                            {tx.items?.reduce((s, i) => s + i.quantity, 0) || 0} pcs
+                                          </td>
+                                          <td className="py-2 px-2 text-right text-emerald-400">
+                                            {formatRupiah(tx.total)}
+                                          </td>
+                                        </tr>
+                                      </tfoot>
+                                    </table>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-
-                          {/* Metode Bayar */}
-                          <td className="py-3.5 px-4">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-950 border border-slate-800 text-slate-300">
-                              {tx.paymentMethod}
-                            </span>
-                          </td>
-
-                          {/* Action Buttons: Print & DELETE */}
-                          <td className="py-3.5 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* Print Receipt */}
-                              <button
-                                type="button"
-                                onClick={() => setSelectedTx(tx)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition cursor-pointer"
-                                title="Lihat & Cetak Struk Ulang"
-                              >
-                                <Printer className="w-3.5 h-3.5" />
-                                <span>Struk</span>
-                              </button>
-
-                              {/* HAPUS STRUK */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setTxToDelete(tx);
-                                  setRestoreStockOnDelete(true);
-                                }}
-                                className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950/80 hover:text-rose-300 text-slate-400 transition cursor-pointer"
-                                title="Hapus Struk Ini"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
-
-                        </tr>
+                        </React.Fragment>
                       );
                     })
                   )}
@@ -737,7 +949,218 @@ export const ReportView: React.FC = () => {
       )}
 
       {/* ========================================================================= */}
-      {/* SUB-TAB 2: UPDATE STOK BARANG (HANYA NOMINAL BELANJA, TANGGAL, KETERANGAN) */}
+      {/* SUB-TAB 2: HISTORY BARANG TERJUAL (SAMA PERSIS DENGAN STRUK PENJUALAN)    */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'soldItems' && (
+        <div className="space-y-6">
+          
+          {/* Quick Metrics for Sold Items */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <span className="text-slate-400 text-xs font-medium block">Total Barang Terjual</span>
+                <p className="text-xl sm:text-2xl font-extrabold text-blue-400 mt-1">
+                  {totalQuantitySold.toLocaleString('id-ID')} <span className="text-xs font-normal text-slate-400">unit</span>
+                </p>
+                <span className="text-[11px] text-slate-500 mt-0.5 block">
+                  Dari {filteredSoldItems.length} baris penjualan barang
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
+                <ShoppingBag className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <span className="text-slate-400 text-xs font-medium block">Total Nilai Penjualan Barang</span>
+                <p className="text-xl sm:text-2xl font-extrabold text-emerald-400 mt-1">
+                  {formatRupiah(totalSoldRevenue)}
+                </p>
+                <span className="text-[11px] text-slate-500 mt-0.5 block">
+                  Sesuai total subtotal nota struk
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                <Receipt className="w-6 h-6" />
+              </div>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between">
+              <div>
+                <span className="text-slate-400 text-xs font-medium block">Struk Penjualan Terkait</span>
+                <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+                  {filteredTransactions.length} <span className="text-xs font-normal text-slate-400">struk</span>
+                </p>
+                <span className="text-[11px] text-slate-500 mt-0.5 block">
+                  Semua transaksi tercatat di cloud Firestore
+                </span>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
+                <PackageCheck className="w-6 h-6" />
+              </div>
+            </div>
+          </div>
+
+          {/* Sold Items Table Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-bold text-sm text-white flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-blue-400" />
+                  <span>Daftar Riwayat Barang Terjual ({filteredSoldItems.length} Catatan)</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Setiap baris barang di bawah ini bersumber langsung dari rincian struk penjualan kasir, menjamin data 100% akurat dan sama persis.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleExportCSV}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer self-start sm:self-auto"
+              >
+                <Download className="w-3.5 h-3.5 text-blue-400" />
+                <span>Unduh Riwayat Barang (CSV)</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs sm:text-sm">
+                <thead className="bg-slate-950/90 text-slate-300 text-[11px] uppercase tracking-wider border-b border-slate-800">
+                  <tr>
+                    <th className="py-3 px-3.5 text-center w-12">No</th>
+                    <th className="py-3 px-4">Tanggal & Jam</th>
+                    <th className="py-3 px-4">No. Struk</th>
+                    <th className="py-3 px-4">Nama Barang</th>
+                    <th className="py-3 px-4">Kode / Barcode</th>
+                    <th className="py-3 px-4">Kasir</th>
+                    <th className="py-3 px-4">Pelanggan</th>
+                    <th className="py-3 px-4 text-right">Harga Satuan</th>
+                    <th className="py-3 px-4 text-center">Jumlah (Qty)</th>
+                    <th className="py-3 px-4 text-right">Subtotal</th>
+                    <th className="py-3 px-4 text-center">Aksi Struk</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/80 text-slate-200">
+                  {filteredSoldItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-12 text-center text-slate-500">
+                        Belum ada riwayat barang terjual yang cocok dengan filter atau kata kunci pencarian.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSoldItems.map((item, index) => (
+                      <tr key={item.id} className="hover:bg-slate-800/40 transition">
+                        
+                        {/* No */}
+                        <td className="py-3.5 px-3.5 text-center text-slate-500 font-mono text-xs">
+                          {index + 1}
+                        </td>
+
+                        {/* Tanggal & Jam */}
+                        <td className="py-3.5 px-4 text-slate-300 text-xs whitespace-nowrap">
+                          <div>{formatDateIndo(item.date)}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">
+                            {new Date(item.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
+                          </div>
+                        </td>
+
+                        {/* No Nota Struk */}
+                        <td className="py-3.5 px-4 font-mono font-bold text-emerald-400 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTx(item.originalTx)}
+                            className="hover:underline flex items-center gap-1 cursor-pointer"
+                            title="Klik untuk membuka struk transaksi ini"
+                          >
+                            <Receipt className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>{item.receiptNumber}</span>
+                          </button>
+                        </td>
+
+                        {/* Nama Barang */}
+                        <td className="py-3.5 px-4">
+                          <span className="font-bold text-white block">{item.name}</span>
+                        </td>
+
+                        {/* Kode / Barcode */}
+                        <td className="py-3.5 px-4 font-mono text-xs text-slate-400 whitespace-nowrap">
+                          {item.code || '-'}
+                        </td>
+
+                        {/* Kasir */}
+                        <td className="py-3.5 px-4 text-xs whitespace-nowrap">
+                          <span className="font-medium text-slate-200">{item.cashierName}</span>
+                          <span className="block text-[10px] text-slate-500">
+                            {item.cashierRole === 'super_admin' ? 'Super Admin' : 'Kasir'}
+                          </span>
+                        </td>
+
+                        {/* Pelanggan */}
+                        <td className="py-3.5 px-4 text-xs text-slate-300 whitespace-nowrap">
+                          {item.customerName}
+                        </td>
+
+                        {/* Harga Satuan */}
+                        <td className="py-3.5 px-4 text-right text-slate-300 font-mono text-xs whitespace-nowrap">
+                          {formatRupiah(item.price)}
+                        </td>
+
+                        {/* Jumlah (Qty) */}
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-blue-950/80 text-blue-300 border border-blue-800">
+                            {item.quantity} {item.unit}
+                          </span>
+                        </td>
+
+                        {/* Subtotal */}
+                        <td className="py-3.5 px-4 text-right font-extrabold text-emerald-400 font-mono text-xs sm:text-sm whitespace-nowrap">
+                          {formatRupiah(item.subtotal)}
+                        </td>
+
+                        {/* Aksi Struk */}
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTx(item.originalTx)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition cursor-pointer"
+                            title="Buka struk transaksi penjualan ini"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            <span>Struk</span>
+                          </button>
+                        </td>
+
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {filteredSoldItems.length > 0 && (
+                  <tfoot className="bg-slate-950/90 border-t-2 border-slate-800 text-xs font-bold text-slate-200">
+                    <tr>
+                      <td colSpan={8} className="py-3 px-4 text-right text-slate-400">
+                        Total Keseluruhan Barang Terjual:
+                      </td>
+                      <td className="py-3 px-4 text-center text-blue-400 font-extrabold">
+                        {totalQuantitySold.toLocaleString('id-ID')} unit
+                      </td>
+                      <td className="py-3 px-4 text-right text-emerald-400 font-extrabold text-sm">
+                        {formatRupiah(totalSoldRevenue)}
+                      </td>
+                      <td className="py-3 px-4"></td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* SUB-TAB 3: UPDATE STOK BARANG (HANYA NOMINAL BELANJA, TANGGAL, KETERANGAN) */}
       {/* ========================================================================= */}
       {activeSubTab === 'purchases' && (
         <div className="space-y-6">
