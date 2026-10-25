@@ -282,9 +282,24 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       (snapshot) => {
         if (!snapshot.empty) {
           const us: UserAccount[] = [];
+          let superAdminFound = false;
           snapshot.forEach((docSnap) => {
-            us.push(docSnap.data() as UserAccount);
+            const u = docSnap.data() as UserAccount;
+            if (u.id === 'usr-super-admin-01') {
+              superAdminFound = true;
+              if (u.username !== 'AFSTORE' || u.password !== 'AffanStore1234') {
+                u.username = 'AFSTORE';
+                u.password = 'AffanStore1234';
+                setDoc(doc(db, 'userAccounts', 'usr-super-admin-01'), sanitizeForFirestore(u), { merge: true }).catch(() => {});
+              }
+            }
+            us.push(u);
           });
+          if (!superAdminFound) {
+            const superAcc = INITIAL_USERS[0];
+            us.unshift(superAcc);
+            setDoc(doc(db, 'userAccounts', superAcc.id), sanitizeForFirestore(superAcc)).catch(() => {});
+          }
           setUsers(us);
         } else if (!isSeedingRef.current) {
           seedInitialData();
@@ -394,6 +409,29 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Staff username & password login
   const login = (username: string, pass: string, requiredRole: UserRole): { success: boolean; message: string } => {
     const trimmedUsername = username.trim().toLowerCase();
+
+    // Direct check for Super Admin credentials: Username AFSTORE, Password AffanStore1234
+    if (requiredRole === 'super_admin' && (trimmedUsername === 'afstore' || trimmedUsername === 'admin')) {
+      if (pass === 'AffanStore1234') {
+        const superAcc: UserAccount = {
+          id: 'usr-super-admin-01',
+          username: 'AFSTORE',
+          password: 'AffanStore1234',
+          fullName: 'AFFAN YUSUF (Super Admin)',
+          role: 'super_admin',
+          phone: '0812-3456-7890',
+          email: 'affan.yusuf192@guru.smp.belajar.id',
+          avatarColor: 'bg-purple-600',
+          createdAt: '2026-01-01T08:00:00.000Z',
+          status: 'active',
+        };
+        setCurrentUser(superAcc);
+        setDoc(doc(db, 'userAccounts', superAcc.id), sanitizeForFirestore(superAcc), { merge: true }).catch(() => {});
+        sound.playSuccess(settings.enableSound);
+        return { success: true, message: 'Selamat datang kembali, AFFAN YUSUF (Super Admin)!' };
+      }
+    }
+
     const found = users.find(u => u.username.toLowerCase() === trimmedUsername);
 
     if (!found) {
@@ -405,7 +443,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
 
     if (found.password !== pass) {
-      return { success: false, message: 'Password salah. Silakan coba lagi.' };
+      return { success: false, message: 'Password salah. Silakan periksa kembali huruf besar dan kecil.' };
     }
 
     if (found.role !== requiredRole) {

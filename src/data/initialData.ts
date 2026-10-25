@@ -3,8 +3,8 @@ import { UserAccount, Product, StoreSettings, Transaction, StockPurchase } from 
 export const INITIAL_USERS: UserAccount[] = [
   {
     id: 'usr-super-admin-01',
-    username: 'admin',
-    password: 'admin123',
+    username: 'AFSTORE',
+    password: 'AffanStore1234',
     fullName: 'AFFAN YUSUF (Super Admin)',
     role: 'super_admin',
     phone: '0812-3456-7890',
