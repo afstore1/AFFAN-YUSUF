@@ -27,6 +27,42 @@ export function formatDateIndo(dateStr: string): string {
   }
 }
 
+/**
+ * Format tanggal lengkap dengan Hari, Tanggal, Bulan, dan Tahun
+ * Contoh: "Sabtu, 24 Oktober 2026"
+ */
+export function formatFullDateWithDay(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('id-ID', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(d);
+  } catch {
+    return dateStr;
+  }
+}
+
+/**
+ * Format Bulan dan Tahun untuk pengelompokan
+ * Contoh: "Oktober 2026"
+ */
+export function formatMonthYearIndo(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return new Intl.DateTimeFormat('id-ID', {
+      month: 'long',
+      year: 'numeric',
+    }).format(d);
+  } catch {
+    return dateStr;
+  }
+}
+
 export function generateReceiptNumber(): string {
   const date = new Date();
   const y = date.getFullYear();

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { usePos } from '../context/PosContext';
 import { Transaction, Product, StockPurchase } from '../types';
-import { formatRupiah, formatDateIndo } from '../utils/format';
+import { formatRupiah, formatDateIndo, formatFullDateWithDay, formatMonthYearIndo } from '../utils/format';
 import { ReceiptModal } from './ReceiptModal';
 import { 
   BarChart3, 
@@ -26,7 +26,10 @@ import {
   Info,
   ChevronDown,
   ChevronUp,
-  PackageCheck
+  PackageCheck,
+  CalendarRange,
+  Clock,
+  Layers
 } from 'lucide-react';
 
 export const ReportView: React.FC = () => {
@@ -52,6 +55,14 @@ export const ReportView: React.FC = () => {
 
   const toggleExpandTx = (id: string) => {
     setExpandedTxIds(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  // State untuk pengelompokan bulanan riwayat barang terjual
+  const [selectedSoldMonth, setSelectedSoldMonth] = useState<string>('all');
+  const [collapsedSoldMonths, setCollapsedSoldMonths] = useState<Record<string, boolean>>({});
+
+  const toggleCollapseSoldMonth = (monthKey: string) => {
+    setCollapsedSoldMonths(prev => ({ ...prev, [monthKey]: !prev[monthKey] }));
   };
 
   // Filters for Receipts & Purchases
@@ -173,12 +184,21 @@ export const ReportView: React.FC = () => {
   }, [filteredTransactions]);
 
   // History seluruh barang yang terjual, diambil persis dari rincian struk transaksi
+  // Dilengkapi keterangan Hari, Tanggal, Bulan, Tahun, dan Jam
   const soldItemsHistory = useMemo(() => {
     const list: {
       id: string;
       transactionId: string;
       receiptNumber: string;
       date: string;
+      dayName: string;
+      dateDay: string;
+      monthName: string;
+      yearNum: string;
+      fullDateWithDay: string;
+      timeStr: string;
+      monthKey: string;
+      monthLabel: string;
       cashierName: string;
       cashierRole: string;
       customerName: string;
@@ -194,6 +214,34 @@ export const ReportView: React.FC = () => {
     }[] = [];
 
     filteredTransactions.forEach(tx => {
+      const d = new Date(tx.date);
+      const isValidDate = !isNaN(d.getTime());
+      
+      const dayName = isValidDate 
+        ? new Intl.DateTimeFormat('id-ID', { weekday: 'long' }).format(d)
+        : '-';
+      const dateDay = isValidDate
+        ? new Intl.DateTimeFormat('id-ID', { day: 'numeric' }).format(d)
+        : '-';
+      const monthName = isValidDate
+        ? new Intl.DateTimeFormat('id-ID', { month: 'long' }).format(d)
+        : '-';
+      const yearNum = isValidDate
+        ? new Intl.DateTimeFormat('id-ID', { year: 'numeric' }).format(d)
+        : '-';
+      const fullDateWithDay = isValidDate
+        ? formatFullDateWithDay(tx.date)
+        : tx.date;
+      const timeStr = isValidDate
+        ? d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      const monthKey = isValidDate
+        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+        : 'Lainnya';
+      const monthLabel = isValidDate
+        ? formatMonthYearIndo(tx.date)
+        : 'Lainnya';
+
       if (Array.isArray(tx.items)) {
         tx.items.forEach((item, itemIdx) => {
           list.push({
@@ -201,6 +249,14 @@ export const ReportView: React.FC = () => {
             transactionId: tx.id,
             receiptNumber: tx.receiptNumber,
             date: tx.date,
+            dayName,
+            dateDay,
+            monthName,
+            yearNum,
+            fullDateWithDay,
+            timeStr,
+            monthKey,
+            monthLabel,
             cashierName: tx.cashierName,
             cashierRole: tx.cashierRole,
             customerName: tx.customerName || 'Pelanggan Umum',
@@ -230,7 +286,11 @@ export const ReportView: React.FC = () => {
       item.code.toLowerCase().includes(q) ||
       item.receiptNumber.toLowerCase().includes(q) ||
       item.cashierName.toLowerCase().includes(q) ||
-      item.customerName.toLowerCase().includes(q)
+      item.customerName.toLowerCase().includes(q) ||
+      item.dayName.toLowerCase().includes(q) ||
+      item.monthName.toLowerCase().includes(q) ||
+      item.yearNum.includes(q) ||
+      item.fullDateWithDay.toLowerCase().includes(q)
     );
   }, [soldItemsHistory, searchQuery]);
 
@@ -241,6 +301,64 @@ export const ReportView: React.FC = () => {
   const totalSoldRevenue = useMemo(() => {
     return filteredSoldItems.reduce((sum, item) => sum + item.subtotal, 0);
   }, [filteredSoldItems]);
+
+  // PENGELOMPOKAN SETIAP BULAN (DIURUTKAN DARI BULAN TERBARU)
+  const monthlyGroupedSoldItems = useMemo(() => {
+    const map = new Map<string, {
+      monthKey: string;
+      monthLabel: string;
+      items: typeof filteredSoldItems;
+      totalQuantity: number;
+      totalRevenue: number;
+      uniqueReceiptsCount: number;
+    }>();
+
+    filteredSoldItems.forEach(item => {
+      const monthKey = item.monthKey || 'Lainnya';
+      const monthLabel = item.monthLabel || 'Lainnya';
+
+      if (!map.has(monthKey)) {
+        map.set(monthKey, {
+          monthKey,
+          monthLabel,
+          items: [],
+          totalQuantity: 0,
+          totalRevenue: 0,
+          uniqueReceiptsCount: 0,
+        });
+      }
+
+      const group = map.get(monthKey)!;
+      group.items.push(item);
+      group.totalQuantity += item.quantity;
+      group.totalRevenue += item.subtotal;
+    });
+
+    const groups = Array.from(map.values()).sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+
+    groups.forEach(g => {
+      g.uniqueReceiptsCount = new Set(g.items.map(it => it.receiptNumber)).size;
+    });
+
+    return groups;
+  }, [filteredSoldItems]);
+
+  // Daftar bulan yang tersedia untuk selector filter bulan
+  const availableSoldMonths = useMemo(() => {
+    return monthlyGroupedSoldItems.map(g => ({
+      key: g.monthKey,
+      label: g.monthLabel,
+      itemCount: g.items.length,
+      qty: g.totalQuantity,
+      revenue: g.totalRevenue,
+    }));
+  }, [monthlyGroupedSoldItems]);
+
+  // Kelompok bulan yang ditampilkan (setelah filter bulan aktif)
+  const displayedMonthlyGroups = useMemo(() => {
+    if (selectedSoldMonth === 'all') return monthlyGroupedSoldItems;
+    return monthlyGroupedSoldItems.filter(g => g.monthKey === selectedSoldMonth);
+  }, [monthlyGroupedSoldItems, selectedSoldMonth]);
 
   // Handle Delete Transaction Execution
   const handleConfirmDeleteTx = () => {
@@ -349,12 +467,34 @@ export const ReportView: React.FC = () => {
         alert('Tidak ada data barang terjual untuk diekspor.');
         return;
       }
-      const headers = ['No. Nota Struk', 'Tanggal', 'Jam', 'Nama Barang', 'Kode / Barcode', 'Jumlah Terjual', 'Satuan', 'Harga Satuan', 'Subtotal', 'Kasir', 'Pelanggan'];
+      const headers = [
+        'Kelompok Bulan',
+        'Hari',
+        'Tanggal',
+        'Bulan',
+        'Tahun',
+        'Keterangan Waktu Lengkap',
+        'Jam',
+        'No. Nota Struk',
+        'Nama Barang',
+        'Kode / Barcode',
+        'Jumlah Terjual',
+        'Satuan',
+        'Harga Satuan',
+        'Subtotal',
+        'Kasir',
+        'Pelanggan'
+      ];
       const rows = filteredSoldItems.map(item => [
-        item.receiptNumber,
-        `"${formatDateIndo(item.date)}"`,
-        `"${new Date(item.date).toLocaleTimeString('id-ID')}"`,
-        `"${item.name}"`,
+        `"${item.monthLabel}"`,
+        `"${item.dayName}"`,
+        item.dateDay,
+        `"${item.monthName}"`,
+        item.yearNum,
+        `"${item.fullDateWithDay}"`,
+        `"${item.timeStr} WIB"`,
+        `"${item.receiptNumber}"`,
+        `"${item.name.replace(/"/g, '""')}"`,
         `"${item.code}"`,
         item.quantity,
         `"${item.unit}"`,
@@ -369,7 +509,7 @@ export const ReportView: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `history-barang-terjual-afstore-${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `history-barang-terjual-perbulan-${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -750,7 +890,7 @@ export const ReportView: React.FC = () => {
                 <thead className="bg-slate-950/90 text-slate-300 text-[11px] uppercase tracking-wider border-b border-slate-800">
                   <tr>
                     <th className="py-3 px-4">No. Nota</th>
-                    <th className="py-3 px-4">Tanggal & Jam</th>
+                    <th className="py-3 px-4">Hari, Tanggal, Bulan & Tahun</th>
                     <th className="py-3 px-4">Kasir Bertugas</th>
                     <th className="py-3 px-4">Pelanggan</th>
                     <th className="py-3 px-4">Total Belanja</th>
@@ -803,9 +943,15 @@ export const ReportView: React.FC = () => {
                               </span>
                             </td>
 
-                            {/* Date */}
-                            <td className="py-3.5 px-4 text-slate-300 text-xs">
-                              {formatDateIndo(tx.date)}
+                            {/* Hari, Tanggal, Bulan & Tahun */}
+                            <td className="py-3.5 px-4 text-slate-300 text-xs whitespace-nowrap">
+                              <div className="font-semibold text-white">
+                                {formatFullDateWithDay(tx.date)}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
+                                <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                <span>Pukul {new Date(tx.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB</span>
+                              </div>
                             </td>
 
                             {/* Cashier */}
@@ -1002,159 +1148,287 @@ export const ReportView: React.FC = () => {
             </div>
           </div>
 
-          {/* Sold Items Table Card */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-            <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                  <ShoppingBag className="w-4 h-4 text-blue-400" />
-                  <span>Daftar Riwayat Barang Terjual ({filteredSoldItems.length} Catatan)</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Setiap baris barang di bawah ini bersumber langsung dari rincian struk penjualan kasir, menjamin data 100% akurat dan sama persis.
-                </p>
+          {/* Filter Toolbar Khusus Pengelompokan Bulan */}
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-2">
+                <CalendarRange className="w-4 h-4 text-blue-400 shrink-0" />
+                <span className="text-xs font-bold text-slate-300 whitespace-nowrap">Pilih Kelompok Bulan:</span>
               </div>
-
-              <button
-                type="button"
-                onClick={handleExportCSV}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer self-start sm:self-auto"
+              <select
+                value={selectedSoldMonth}
+                onChange={e => setSelectedSoldMonth(e.target.value)}
+                className="py-1.5 px-3 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500 font-medium"
               >
-                <Download className="w-3.5 h-3.5 text-blue-400" />
-                <span>Unduh Riwayat Barang (CSV)</span>
-              </button>
+                <option value="all">Semua Bulan ({monthlyGroupedSoldItems.length} Bulan Aktif)</option>
+                {availableSoldMonths.map(m => (
+                  <option key={m.key} value={m.key}>
+                    Bulan {m.label} ({m.qty} unit terjual - {formatRupiah(m.revenue)})
+                  </option>
+                ))}
+              </select>
+
+              {monthlyGroupedSoldItems.length > 1 && (
+                <div className="flex items-center gap-1.5 pl-2 border-l border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedSoldMonths({})}
+                    className="px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:text-white bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg transition cursor-pointer"
+                  >
+                    Buka Semua Bulan
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allCollapsed: Record<string, boolean> = {};
+                      monthlyGroupedSoldItems.forEach(g => {
+                        allCollapsed[g.monthKey] = true;
+                      });
+                      setCollapsedSoldMonths(allCollapsed);
+                    }}
+                    className="px-2.5 py-1 text-[11px] font-medium text-slate-400 hover:text-white bg-slate-950 hover:bg-slate-800 border border-slate-800 rounded-lg transition cursor-pointer"
+                  >
+                    Tutup Semua Bulan
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs sm:text-sm">
-                <thead className="bg-slate-950/90 text-slate-300 text-[11px] uppercase tracking-wider border-b border-slate-800">
-                  <tr>
-                    <th className="py-3 px-3.5 text-center w-12">No</th>
-                    <th className="py-3 px-4">Tanggal & Jam</th>
-                    <th className="py-3 px-4">No. Struk</th>
-                    <th className="py-3 px-4">Nama Barang</th>
-                    <th className="py-3 px-4">Kode / Barcode</th>
-                    <th className="py-3 px-4">Kasir</th>
-                    <th className="py-3 px-4">Pelanggan</th>
-                    <th className="py-3 px-4 text-right">Harga Satuan</th>
-                    <th className="py-3 px-4 text-center">Jumlah (Qty)</th>
-                    <th className="py-3 px-4 text-right">Subtotal</th>
-                    <th className="py-3 px-4 text-center">Aksi Struk</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/80 text-slate-200">
-                  {filteredSoldItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} className="py-12 text-center text-slate-500">
-                        Belum ada riwayat barang terjual yang cocok dengan filter atau kata kunci pencarian.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredSoldItems.map((item, index) => (
-                      <tr key={item.id} className="hover:bg-slate-800/40 transition">
-                        
-                        {/* No */}
-                        <td className="py-3.5 px-3.5 text-center text-slate-500 font-mono text-xs">
-                          {index + 1}
-                        </td>
-
-                        {/* Tanggal & Jam */}
-                        <td className="py-3.5 px-4 text-slate-300 text-xs whitespace-nowrap">
-                          <div>{formatDateIndo(item.date)}</div>
-                          <div className="text-[10px] text-slate-500 font-mono">
-                            {new Date(item.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB
-                          </div>
-                        </td>
-
-                        {/* No Nota Struk */}
-                        <td className="py-3.5 px-4 font-mono font-bold text-emerald-400 whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTx(item.originalTx)}
-                            className="hover:underline flex items-center gap-1 cursor-pointer"
-                            title="Klik untuk membuka struk transaksi ini"
-                          >
-                            <Receipt className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                            <span>{item.receiptNumber}</span>
-                          </button>
-                        </td>
-
-                        {/* Nama Barang */}
-                        <td className="py-3.5 px-4">
-                          <span className="font-bold text-white block">{item.name}</span>
-                        </td>
-
-                        {/* Kode / Barcode */}
-                        <td className="py-3.5 px-4 font-mono text-xs text-slate-400 whitespace-nowrap">
-                          {item.code || '-'}
-                        </td>
-
-                        {/* Kasir */}
-                        <td className="py-3.5 px-4 text-xs whitespace-nowrap">
-                          <span className="font-medium text-slate-200">{item.cashierName}</span>
-                          <span className="block text-[10px] text-slate-500">
-                            {item.cashierRole === 'super_admin' ? 'Super Admin' : 'Kasir'}
-                          </span>
-                        </td>
-
-                        {/* Pelanggan */}
-                        <td className="py-3.5 px-4 text-xs text-slate-300 whitespace-nowrap">
-                          {item.customerName}
-                        </td>
-
-                        {/* Harga Satuan */}
-                        <td className="py-3.5 px-4 text-right text-slate-300 font-mono text-xs whitespace-nowrap">
-                          {formatRupiah(item.price)}
-                        </td>
-
-                        {/* Jumlah (Qty) */}
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-blue-950/80 text-blue-300 border border-blue-800">
-                            {item.quantity} {item.unit}
-                          </span>
-                        </td>
-
-                        {/* Subtotal */}
-                        <td className="py-3.5 px-4 text-right font-extrabold text-emerald-400 font-mono text-xs sm:text-sm whitespace-nowrap">
-                          {formatRupiah(item.subtotal)}
-                        </td>
-
-                        {/* Aksi Struk */}
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTx(item.originalTx)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition cursor-pointer"
-                            title="Buka struk transaksi penjualan ini"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            <span>Struk</span>
-                          </button>
-                        </td>
-
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-                {filteredSoldItems.length > 0 && (
-                  <tfoot className="bg-slate-950/90 border-t-2 border-slate-800 text-xs font-bold text-slate-200">
-                    <tr>
-                      <td colSpan={8} className="py-3 px-4 text-right text-slate-400">
-                        Total Keseluruhan Barang Terjual:
-                      </td>
-                      <td className="py-3 px-4 text-center text-blue-400 font-extrabold">
-                        {totalQuantitySold.toLocaleString('id-ID')} unit
-                      </td>
-                      <td className="py-3 px-4 text-right text-emerald-400 font-extrabold text-sm">
-                        {formatRupiah(totalSoldRevenue)}
-                      </td>
-                      <td className="py-3 px-4"></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+            <button
+              type="button"
+              onClick={handleExportCSV}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition cursor-pointer self-start sm:self-auto shadow-sm"
+            >
+              <Download className="w-3.5 h-3.5 text-blue-400" />
+              <span>Unduh Riwayat Barang Terjual (CSV)</span>
+            </button>
           </div>
+
+          {/* DAFTAR BARANG TERJUAL BERKELOMPOK SETIAP BULANNYA */}
+          {displayedMonthlyGroups.length === 0 ? (
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center text-slate-500">
+              <ShoppingBag className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+              <p className="text-sm font-medium text-slate-400">
+                Belum ada riwayat barang terjual yang cocok dengan filter atau kata kunci pencarian.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {displayedMonthlyGroups.map(group => {
+                const isCollapsed = !!collapsedSoldMonths[group.monthKey];
+
+                return (
+                  <div
+                    key={group.monthKey}
+                    className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl transition-all"
+                  >
+                    {/* Header Kelompok Bulan */}
+                    <div
+                      onClick={() => toggleCollapseSoldMonth(group.monthKey)}
+                      className="p-4 bg-slate-950/80 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-slate-950 transition select-none"
+                    >
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-blue-600/15 border border-blue-500/30 flex items-center justify-center text-blue-400 shrink-0">
+                          <CalendarRange className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-extrabold text-sm sm:text-base text-white">
+                              Bulan: {group.monthLabel}
+                            </h3>
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-950 text-blue-300 border border-blue-800">
+                              {group.totalQuantity.toLocaleString('id-ID')} unit terjual
+                            </span>
+                            <span className="text-slate-400 text-xs hidden sm:inline">
+                              • {group.items.length} rincian barang • {group.uniqueReceiptsCount} struk nota
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-400 block sm:hidden mt-0.5">
+                            {group.items.length} rincian barang • {group.uniqueReceiptsCount} struk nota
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between sm:justify-end gap-3 self-stretch sm:self-auto border-t sm:border-t-0 border-slate-800/80 pt-2 sm:pt-0">
+                        <div className="text-left sm:text-right">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">
+                            Total Omset Bulan Ini
+                          </span>
+                          <span className="text-sm sm:text-base font-extrabold text-emerald-400 font-mono">
+                            {formatRupiah(group.totalRevenue)}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-white transition"
+                          title={isCollapsed ? "Buka tabel rincian bulan ini" : "Tutup tabel rincian bulan ini"}
+                        >
+                          {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tabel Rincian Barang Terjual Pada Bulan Ini */}
+                    {!isCollapsed && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs sm:text-sm">
+                          <thead className="bg-slate-950/60 text-slate-300 text-[11px] uppercase tracking-wider border-b border-slate-800">
+                            <tr>
+                              <th className="py-3 px-3 text-center w-10">No</th>
+                              <th className="py-3 px-4 min-w-[190px]">Hari, Tanggal, Bulan & Tahun</th>
+                              <th className="py-3 px-4">No. Struk</th>
+                              <th className="py-3 px-4 min-w-[160px]">Nama Barang</th>
+                              <th className="py-3 px-4">Kode / Barcode</th>
+                              <th className="py-3 px-4">Kasir</th>
+                              <th className="py-3 px-4">Pelanggan</th>
+                              <th className="py-3 px-4 text-right">Harga Satuan</th>
+                              <th className="py-3 px-4 text-center">Jumlah (Qty)</th>
+                              <th className="py-3 px-4 text-right">Subtotal</th>
+                              <th className="py-3 px-4 text-center">Aksi Struk</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/80 text-slate-200">
+                            {group.items.map((item, index) => (
+                              <tr key={item.id} className="hover:bg-slate-800/40 transition">
+                                
+                                {/* No Urut */}
+                                <td className="py-3.5 px-3 text-center text-slate-500 font-mono text-xs">
+                                  {index + 1}
+                                </td>
+
+                                {/* KETERANGAN LENGKAP: HARI, TANGGAL, BULAN, TAHUN & JAM */}
+                                <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                                  <div className="flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-1.5">
+                                      {/* Keterangan Hari */}
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold uppercase bg-blue-950/90 text-blue-300 border border-blue-800">
+                                        {item.dayName}
+                                      </span>
+                                      {/* Keterangan Tanggal, Bulan, dan Tahun */}
+                                      <span className="font-semibold text-white text-xs">
+                                        {item.dateDay} {item.monthName} {item.yearNum}
+                                      </span>
+                                    </div>
+                                    {/* Keterangan Jam */}
+                                    <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 pl-0.5">
+                                      <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                      <span>Pukul {item.timeStr} WIB</span>
+                                    </div>
+                                  </div>
+                                </td>
+
+                                {/* No Nota Struk */}
+                                <td className="py-3.5 px-4 font-mono font-bold text-emerald-400 whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedTx(item.originalTx)}
+                                    className="hover:underline flex items-center gap-1 cursor-pointer"
+                                    title="Klik untuk membuka struk transaksi ini"
+                                  >
+                                    <Receipt className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                    <span>{item.receiptNumber}</span>
+                                  </button>
+                                </td>
+
+                                {/* Nama Barang Sesuai Struk */}
+                                <td className="py-3.5 px-4">
+                                  <span className="font-bold text-white block">{item.name}</span>
+                                </td>
+
+                                {/* Kode / Barcode */}
+                                <td className="py-3.5 px-4 font-mono text-xs text-slate-400 whitespace-nowrap">
+                                  {item.code || '-'}
+                                </td>
+
+                                {/* Kasir */}
+                                <td className="py-3.5 px-4 text-xs whitespace-nowrap">
+                                  <span className="font-medium text-slate-200">{item.cashierName}</span>
+                                  <span className="block text-[10px] text-slate-500">
+                                    {item.cashierRole === 'super_admin' ? 'Super Admin' : 'Kasir'}
+                                  </span>
+                                </td>
+
+                                {/* Pelanggan */}
+                                <td className="py-3.5 px-4 text-xs text-slate-300 whitespace-nowrap">
+                                  {item.customerName}
+                                </td>
+
+                                {/* Harga Satuan */}
+                                <td className="py-3.5 px-4 text-right text-slate-300 font-mono text-xs whitespace-nowrap">
+                                  {formatRupiah(item.price)}
+                                </td>
+
+                                {/* Jumlah (Qty) */}
+                                <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-blue-950/80 text-blue-300 border border-blue-800">
+                                    {item.quantity} {item.unit}
+                                  </span>
+                                </td>
+
+                                {/* Subtotal */}
+                                <td className="py-3.5 px-4 text-right font-extrabold text-emerald-400 font-mono text-xs sm:text-sm whitespace-nowrap">
+                                  {formatRupiah(item.subtotal)}
+                                </td>
+
+                                {/* Aksi Struk */}
+                                <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedTx(item.originalTx)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-emerald-600 text-slate-200 hover:text-white text-xs font-semibold border border-slate-700 transition cursor-pointer"
+                                    title="Buka struk transaksi penjualan ini"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                    <span>Struk</span>
+                                  </button>
+                                </td>
+
+                              </tr>
+                            ))}
+                          </tbody>
+                          {/* Total Subtotal Bulan Ini */}
+                          <tfoot className="bg-slate-950/90 border-t-2 border-slate-800 text-xs font-bold text-slate-200">
+                            <tr>
+                              <td colSpan={8} className="py-3 px-4 text-right text-slate-400">
+                                Total Penjualan Bulan {group.monthLabel}:
+                              </td>
+                              <td className="py-3 px-4 text-center text-blue-400 font-extrabold">
+                                {group.totalQuantity.toLocaleString('id-ID')} unit
+                              </td>
+                              <td className="py-3 px-4 text-right text-emerald-400 font-extrabold text-sm">
+                                {formatRupiah(group.totalRevenue)}
+                              </td>
+                              <td className="py-3 px-4"></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Grand Total All Months Footer Card */}
+              {displayedMonthlyGroups.length > 1 && (
+                <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2 text-slate-300">
+                    <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>
+                      Total Akumulasi dari <strong>{displayedMonthlyGroups.length} Kelompok Bulan</strong> di atas:
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-slate-400">
+                      Total: <strong className="text-blue-400 text-sm">{totalQuantitySold.toLocaleString('id-ID')} unit barang</strong>
+                    </span>
+                    <span className="text-slate-400">
+                      Total Omset: <strong className="text-emerald-400 text-base font-extrabold font-mono">{formatRupiah(totalSoldRevenue)}</strong>
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
       )}

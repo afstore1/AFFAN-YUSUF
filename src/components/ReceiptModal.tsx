@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Transaction } from '../types';
 import { usePos } from '../context/PosContext';
-import { formatRupiah, formatDateIndo } from '../utils/format';
+import { formatRupiah, formatDateIndo, formatFullDateWithDay } from '../utils/format';
 import { Printer, Check, Copy, X, ShoppingBag } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -43,7 +43,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     text += `  Telp: ${settings.storePhone}\n`;
     text += `================================\n`;
     text += `No. Nota : ${transaction.receiptNumber}\n`;
-    text += `Tanggal  : ${formatDateIndo(transaction.date)}\n`;
+    text += `Waktu    : ${formatFullDateWithDay(transaction.date)}, ${new Date(transaction.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WIB\n`;
     text += `Kasir    : ${transaction.cashierName}\n`;
     text += `Pelanggan: ${transaction.customerName || 'Umum'}\n`;
     text += `--------------------------------\n`;
@@ -127,9 +127,14 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
               <span className="text-slate-500">No. Nota:</span>
               <span className="font-bold text-slate-800">{transaction.receiptNumber}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-500">Tanggal:</span>
-              <span className="text-slate-800">{formatDateIndo(transaction.date)}</span>
+            <div className="flex justify-between items-baseline">
+              <span className="text-slate-500">Waktu:</span>
+              <span className="text-slate-800 font-semibold text-right">
+                {formatFullDateWithDay(transaction.date)}
+                <span className="block text-[10px] text-slate-500 font-normal">
+                  Pukul {new Date(transaction.date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} WIB
+                </span>
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-500">Kasir:</span>
