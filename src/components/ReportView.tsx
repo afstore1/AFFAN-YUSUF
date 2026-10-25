@@ -328,22 +328,24 @@ export const ReportView: React.FC = () => {
               }`}
             >
               <Receipt className="w-3.5 h-3.5" />
-              <span>Riwayat Struk & Laba ({filteredTransactions.length})</span>
+              <span>{isSuperAdmin ? `Riwayat Struk & Laba (${filteredTransactions.length})` : `Riwayat Struk (${filteredTransactions.length})`}</span>
             </button>
 
-            {/* TAB KHUSUS: UPDATE STOK BARANG (HANYA NOMINAL BELANJA, TANGGAL, KETERANGAN) */}
-            <button
-              type="button"
-              onClick={() => setActiveSubTab('purchases')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                activeSubTab === 'purchases'
-                  ? 'bg-amber-600 text-white shadow-md'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Wallet className="w-3.5 h-3.5 text-amber-300" />
-              <span>Update Belanja Stok ({filteredStockPurchases.length})</span>
-            </button>
+            {/* TAB KHUSUS SUPER ADMIN: UPDATE BELANJA STOK BARANG */}
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveSubTab('purchases')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                  activeSubTab === 'purchases'
+                    ? 'bg-amber-600 text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Wallet className="w-3.5 h-3.5 text-amber-300" />
+                <span>Update Belanja Stok ({filteredStockPurchases.length})</span>
+              </button>
+            )}
 
             <button
               type="button"
@@ -378,86 +380,121 @@ export const ReportView: React.FC = () => {
         </div>
       )}
 
-      {/* METRICS ROW (KARTU STATISTIK DENGAN PENGURANGAN OTOMATIS LABA BERSIH) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        
-        {/* Metric 1: Total Omset */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-          <span className="text-slate-400 text-xs font-medium block">Total Omset Penjualan</span>
-          <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
-            {formatRupiah(totalOmset)}
-          </p>
-          <span className="text-[11px] text-slate-500 mt-1 block">Dari {totalCount} transaksi struk kasir</span>
-        </div>
+      {/* METRICS ROW: TAMPILAN BERBEDA ANTARA SUPER ADMIN & ANGGOTA (KASIR) */}
+      {isSuperAdmin ? (
+        /* SUPER ADMIN: 4 KARTU METRIK LENGKAP */
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          
+          {/* Metric 1: Total Omset */}
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+            <span className="text-slate-400 text-xs font-medium block">Total Omset Penjualan</span>
+            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
+              {formatRupiah(totalOmset)}
+            </p>
+            <span className="text-[11px] text-slate-500 mt-1 block">Dari {totalCount} transaksi struk kasir</span>
+          </div>
 
-        {/* Metric 2: TOTAL KEUNTUNGAN BERSIH (LABA) - OTOMATIS DIKURANG NOMINAL BELANJA STOK */}
-        <div className="bg-slate-900 border border-emerald-800/40 p-4 rounded-2xl relative overflow-hidden shadow-inner">
-          <div className="flex items-center justify-between">
-            <span className="text-emerald-400 text-xs font-bold block flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> Total Keuntungan Bersih (Laba)
-            </span>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-              totalNetProfit >= 0 
-                ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
-                : 'bg-rose-950 text-rose-300 border border-rose-800'
+          {/* Metric 2: TOTAL KEUNTUNGAN BERSIH (LABA) */}
+          <div className="bg-slate-900 border border-emerald-800/40 p-4 rounded-2xl relative overflow-hidden shadow-inner">
+            <div className="flex items-center justify-between">
+              <span className="text-emerald-400 text-xs font-bold block flex items-center gap-1">
+                <TrendingUp className="w-3.5 h-3.5" /> Total Keuntungan Bersih (Laba)
+              </span>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                totalNetProfit >= 0 
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' 
+                  : 'bg-rose-950 text-rose-300 border border-rose-800'
+              }`}>
+                {netMarginPercent}% Laba
+              </span>
+            </div>
+
+            <p className={`text-xl sm:text-2xl font-extrabold mt-1 ${
+              totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
             }`}>
-              {netMarginPercent}% Laba
+              {formatRupiah(totalNetProfit)}
+            </p>
+
+            <div className="text-[11px] text-slate-300 mt-1.5 pt-1.5 border-t border-slate-800/80 flex flex-col gap-0.5">
+              <div className="flex justify-between items-center text-slate-400 text-[10px]">
+                <span>Laba Penjualan Struk:</span>
+                <span className="text-slate-200 font-medium">+{formatRupiah(totalGrossProfit)}</span>
+              </div>
+              <div className="flex justify-between items-center text-amber-400 text-[10px]">
+                <span>Dikurangi Belanja Stok:</span>
+                <span className="font-bold">-{formatRupiah(totalBelanjaStok)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Metric 3: TOTAL NOMINAL BELANJA STOK BARANG */}
+          <div className="bg-slate-900 border border-amber-800/40 p-4 rounded-2xl relative">
+            <div className="flex items-center justify-between">
+              <span className="text-amber-400 text-xs font-bold flex items-center gap-1">
+                <Wallet className="w-3.5 h-3.5" /> Total Belanja Stok Barang
+              </span>
+              <button
+                type="button"
+                onClick={handleOpenAddPurchase}
+                className="px-2 py-0.5 text-[10px] font-bold bg-amber-950 hover:bg-amber-900 text-amber-200 border border-amber-800 rounded-md transition cursor-pointer flex items-center gap-1"
+                title="Input nominal belanja stok baru"
+              >
+                <Plus className="w-2.5 h-2.5" />
+                <span>Input</span>
+              </button>
+            </div>
+            <p className="text-xl sm:text-2xl font-extrabold text-amber-300 mt-1">
+              {formatRupiah(totalBelanjaStok)}
+            </p>
+            <span className="text-[11px] text-slate-400 mt-1 block">
+              {filteredStockPurchases.length} kali belanja (memotong laba bersih)
             </span>
           </div>
 
-          <p className={`text-xl sm:text-2xl font-extrabold mt-1 ${
-            totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'
-          }`}>
-            {formatRupiah(totalNetProfit)}
-          </p>
-
-          {/* Keterangan Rumus Pengurangan Otomatis */}
-          <div className="text-[11px] text-slate-300 mt-1.5 pt-1.5 border-t border-slate-800/80 flex flex-col gap-0.5">
-            <div className="flex justify-between items-center text-slate-400 text-[10px]">
-              <span>Laba Penjualan Struk:</span>
-              <span className="text-slate-200 font-medium">+{formatRupiah(totalGrossProfit)}</span>
-            </div>
-            <div className="flex justify-between items-center text-amber-400 text-[10px]">
-              <span>Dikurangi Belanja Stok:</span>
-              <span className="font-bold">-{formatRupiah(totalBelanjaStok)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Metric 3: TOTAL NOMINAL BELANJA STOK BARANG */}
-        <div className="bg-slate-900 border border-amber-800/40 p-4 rounded-2xl relative">
-          <div className="flex items-center justify-between">
-            <span className="text-amber-400 text-xs font-bold flex items-center gap-1">
-              <Wallet className="w-3.5 h-3.5" /> Total Belanja Stok Barang
+          {/* Metric 4: Jumlah Struk Penjualan */}
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+            <span className="text-slate-400 text-xs font-medium block">Jumlah Struk Penjualan</span>
+            <p className="text-xl sm:text-2xl font-extrabold text-sky-400 mt-1">{totalCount} Struk</p>
+            <span className="text-[11px] text-slate-500 mt-1 block">
+              Rata-rata: {formatRupiah(avgOrderValue)}
             </span>
-            <button
-              type="button"
-              onClick={handleOpenAddPurchase}
-              className="px-2 py-0.5 text-[10px] font-bold bg-amber-950 hover:bg-amber-900 text-amber-200 border border-amber-800 rounded-md transition cursor-pointer flex items-center gap-1"
-              title="Input nominal belanja stok baru"
-            >
-              <Plus className="w-2.5 h-2.5" />
-              <span>Input</span>
-            </button>
           </div>
-          <p className="text-xl sm:text-2xl font-extrabold text-amber-300 mt-1">
-            {formatRupiah(totalBelanjaStok)}
-          </p>
-          <span className="text-[11px] text-slate-400 mt-1 block">
-            {filteredStockPurchases.length} kali belanja (memotong laba bersih)
-          </span>
-        </div>
 
-        {/* Metric 4: Jumlah Struk Aktif */}
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-          <span className="text-slate-400 text-xs font-medium block">Jumlah Struk Penjualan</span>
-          <p className="text-xl sm:text-2xl font-extrabold text-sky-400 mt-1">{totalCount} Struk</p>
-          <span className="text-[11px] text-slate-500 mt-1 block">
-            Rata-rata: {formatRupiah(avgOrderValue)}
-          </span>
         </div>
+      ) : (
+        /* AKUN ANGGOTA (KASIR): HANYA TOTAL OMSET DAN JUMLAH STRUK PENJUALAN */
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          
+          {/* Metric 1: Total Omset Penjualan */}
+          <div className="bg-slate-900 border border-emerald-900/50 p-5 rounded-2xl shadow-lg">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-slate-400 text-xs font-medium">Total Omset Penjualan</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            </div>
+            <p className="text-2xl sm:text-3xl font-extrabold text-white mt-1">
+              {formatRupiah(totalOmset)}
+            </p>
+            <span className="text-xs text-slate-400 mt-1.5 block">
+              Total omset dari {totalCount} transaksi penjualan
+            </span>
+          </div>
 
-      </div>
+          {/* Metric 2: Jumlah Struk Penjualan */}
+          <div className="bg-slate-900 border border-sky-900/50 p-5 rounded-2xl shadow-lg">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-slate-400 text-xs font-medium">Jumlah Struk Penjualan</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+            </div>
+            <p className="text-2xl sm:text-3xl font-extrabold text-sky-400 mt-1">
+              {totalCount} Struk
+            </p>
+            <span className="text-xs text-slate-400 mt-1.5 block">
+              Rata-rata transaksi kasir: {formatRupiah(avgOrderValue)} / struk
+            </span>
+          </div>
+
+        </div>
+      )}
 
       {/* FILTER ROW (BERLAKU UNTUK STRUK & BELANJA STOK) */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
@@ -514,23 +551,25 @@ export const ReportView: React.FC = () => {
       {activeSubTab === 'receipts' && (
         <div className="space-y-6">
           
-          {/* Quick Bar Belanja Stok Notice */}
-          <div className="bg-amber-950/20 border border-amber-800/40 p-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 text-amber-300">
-              <Info className="w-4 h-4 shrink-0 text-amber-400" />
-              <span>
-                <strong>Pengingat Belanja Stok:</strong> Total belanja stok saat ini ({formatRupiah(totalBelanjaStok)}) otomatis mengurangi Total Keuntungan Bersih menjadi <strong className="text-emerald-300">{formatRupiah(totalNetProfit)}</strong>.
-              </span>
+          {/* Quick Bar Belanja Stok Notice - KHUSUS SUPER ADMIN */}
+          {isSuperAdmin && (
+            <div className="bg-amber-950/20 border border-amber-800/40 p-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5 text-amber-300">
+                <Info className="w-4 h-4 shrink-0 text-amber-400" />
+                <span>
+                  <strong>Pengingat Belanja Stok:</strong> Total belanja stok saat ini ({formatRupiah(totalBelanjaStok)}) otomatis mengurangi Total Keuntungan Bersih menjadi <strong className="text-emerald-300">{formatRupiah(totalNetProfit)}</strong>.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpenAddPurchase}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition cursor-pointer shrink-0 shadow-md"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Catat Belanja Stok Baru</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleOpenAddPurchase}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs transition cursor-pointer shrink-0 shadow-md"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Catat Belanja Stok Baru</span>
-            </button>
-          </div>
+          )}
 
           {/* Top Products Quick View */}
           {topProducts.length > 0 && (
@@ -554,7 +593,7 @@ export const ReportView: React.FC = () => {
             </div>
           )}
 
-          {/* Transactions Table with DEDICATED KEUNTUNGAN COLUMN & DELETE BUTTON */}
+          {/* Transactions Table */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
             <div className="p-4 border-b border-slate-800 flex items-center justify-between">
               <div>
@@ -563,7 +602,9 @@ export const ReportView: React.FC = () => {
                   <span>Riwayat Struk Pembayaran ({filteredTransactions.length} Transaksi)</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Setiap transaksi memiliki keterangan laba yang jelas serta tombol cetak dan tombol hapus
+                  {isSuperAdmin 
+                    ? 'Setiap transaksi memiliki keterangan laba yang jelas serta tombol cetak dan tombol hapus'
+                    : 'Riwayat struk transaksi penjualan kasir lengkap dengan tombol cetak ulang struk'}
                 </p>
               </div>
             </div>
@@ -577,10 +618,12 @@ export const ReportView: React.FC = () => {
                     <th className="py-3 px-4">Kasir Bertugas</th>
                     <th className="py-3 px-4">Pelanggan</th>
                     <th className="py-3 px-4">Total Belanja</th>
-                    {/* DEDICATED KEUNTUNGAN COLUMN */}
-                    <th className="py-3 px-4 bg-emerald-950/30 border-x border-emerald-800/30 text-emerald-300">
-                      Keterangan Keuntungan (Laba)
-                    </th>
+                    {/* DEDICATED KEUNTUNGAN COLUMN - KHUSUS SUPER ADMIN */}
+                    {isSuperAdmin && (
+                      <th className="py-3 px-4 bg-emerald-950/30 border-x border-emerald-800/30 text-emerald-300">
+                        Keterangan Keuntungan (Laba)
+                      </th>
+                    )}
                     <th className="py-3 px-4">Metode</th>
                     <th className="py-3 px-4 text-right">Aksi Struk</th>
                   </tr>
@@ -588,7 +631,7 @@ export const ReportView: React.FC = () => {
                 <tbody className="divide-y divide-slate-800/80 text-slate-200">
                   {filteredTransactions.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                      <td colSpan={isSuperAdmin ? 8 : 7} className="py-12 text-center text-slate-500">
                         Belum ada riwayat transaksi yang cocok dengan filter pencarian.
                       </td>
                     </tr>
@@ -628,20 +671,22 @@ export const ReportView: React.FC = () => {
                             {formatRupiah(tx.total)}
                           </td>
 
-                          {/* DEDICATED KEUNTUNGAN COLUMN */}
-                          <td className="py-3.5 px-4 bg-emerald-950/15 border-x border-emerald-800/20">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-extrabold text-emerald-400 text-xs sm:text-sm">
-                                +{formatRupiah(tx.totalProfit)}
+                          {/* DEDICATED KEUNTUNGAN COLUMN - KHUSUS SUPER ADMIN */}
+                          {isSuperAdmin && (
+                            <td className="py-3.5 px-4 bg-emerald-950/15 border-x border-emerald-800/20">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-extrabold text-emerald-400 text-xs sm:text-sm">
+                                  +{formatRupiah(tx.totalProfit)}
+                                </span>
+                                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                  {profitMargin}% Laba
+                                </span>
+                              </div>
+                              <span className="text-[10px] text-slate-400 block mt-0.5">
+                                Modal: {formatRupiah(totalModal)}
                               </span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-                                {profitMargin}% Laba
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">
-                              Modal: {formatRupiah(totalModal)}
-                            </span>
-                          </td>
+                            </td>
+                          )}
 
                           {/* Metode Bayar */}
                           <td className="py-3.5 px-4">
