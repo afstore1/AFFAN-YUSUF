@@ -1,12 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { usePos } from '../context/PosContext';
 import { 
-  ShoppingCart, 
-  Package, 
-  Users, 
-  BarChart3, 
-  BookOpen,
-  Landmark,
   Settings, 
   LogOut, 
   Volume2, 
@@ -27,11 +21,9 @@ export const Navbar: React.FC<{
     currentUser, 
     logout, 
     activeTab, 
-    setActiveTab, 
     settings, 
     updateSettings, 
-    users,
-    syncStatus,
+    syncStatus, 
     lastSyncTime,
     syncWithServer
   } = usePos();
@@ -56,14 +48,32 @@ export const Navbar: React.FC<{
   if (!currentUser) return null;
 
   const isSuperAdmin = currentUser.role === 'super_admin';
-  const memberCount = users.filter(u => u.role === 'anggota').length;
+
+  const getTabTitle = () => {
+    switch (activeTab) {
+      case 'pos':
+        return 'Kasir (POS)';
+      case 'products':
+        return 'Katalog Barang';
+      case 'reports':
+        return 'Laporan & Struk Penjualan';
+      case 'bku':
+        return 'Buku Kas Umum (BKU)';
+      case 'bkb':
+        return 'Buku Kas Besar (BKB)';
+      case 'members':
+        return 'Kelola Anggota Kasir';
+      default:
+        return 'AFSTORE POS';
+    }
+  };
 
   return (
     <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-md">
       <div className="w-full px-3 sm:px-6">
         <div className="flex items-center justify-between h-16 gap-2">
           
-          {/* Left: Sidebar Toggle Button & Brand */}
+          {/* Left: Sidebar Toggle Button & Brand / Page Indicator */}
           <div className="flex items-center gap-2.5 shrink-0">
             {onToggleSidebar && (
               <button
@@ -88,7 +98,8 @@ export const Navbar: React.FC<{
                 <Store className="w-5 h-5 text-slate-950" />
               )}
             </div>
-            <div className="hidden md:block">
+
+            <div className="hidden sm:block">
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-white text-base tracking-tight">AFSTORE</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
@@ -101,94 +112,15 @@ export const Navbar: React.FC<{
             </div>
           </div>
 
-          {/* Navigation Links (Quick Access) */}
-          <nav className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto py-1 custom-scrollbar">
-            {/* POS Menu */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('pos')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
-                activeTab === 'pos'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              <ShoppingCart className="w-4 h-4" />
-              <span>Kasir (POS)</span>
-            </button>
-
-            {/* Products Catalog */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('products')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
-                activeTab === 'products'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              <Package className="w-4 h-4" />
-              <span>Katalog</span>
-            </button>
-
-            {/* Reports & Transaction History */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('reports')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
-                activeTab === 'reports'
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Laporan & Struk</span>
-            </button>
-
-            {/* Buku Kas Umum (BKU) */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('bku')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
-                activeTab === 'bku'
-                  ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              <BookOpen className="w-4 h-4 text-teal-300" />
-              <span>Buku Kas Umum</span>
-            </button>
-
-            {/* Buku Kas Besar (BKB) */}
-            <button
-              type="button"
-              onClick={() => setActiveTab('bkb')}
-              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
-                activeTab === 'bkb'
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
-              }`}
-            >
-              <Landmark className="w-4 h-4 text-indigo-300" />
-              <span>Buku Kas Besar</span>
-            </button>
-
-            {/* Member Management: ONLY for Super Admin */}
-            {isSuperAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveTab('members')}
-                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 relative ${
-                  activeTab === 'members'
-                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                    : 'text-purple-300 hover:text-white hover:bg-purple-950/40 border border-purple-800/40'
-                }`}
-              >
-                <Users className="w-4 h-4 text-purple-300" />
-                <span>Anggota ({memberCount})</span>
-              </button>
-            )}
-          </nav>
+          {/* Active View Title Indicator (Menu utama berada di Sidebar) */}
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800 shadow-inner">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-xs sm:text-sm font-bold text-slate-200 tracking-tight">
+                {getTabTitle()}
+              </span>
+            </div>
+          </div>
 
           {/* Right Section: Cloud Sync, Migration Tool, Clock, Sound, User info, Logout */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
