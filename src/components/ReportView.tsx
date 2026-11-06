@@ -153,19 +153,22 @@ export const ReportView: React.FC = () => {
     });
   }, [stockPurchases, dateFilter, searchQuery]);
 
-  // Aggregated metrics
-  const totalOmset = filteredTransactions.reduce((sum, t) => sum + t.total, 0);
+  // Aggregated metrics: Omset berkurang dengan adanya update belanja stok barang
+  const totalOmsetKotor = filteredTransactions.reduce((sum, t) => sum + t.total, 0);
   const totalGrossProfit = filteredTransactions.reduce((sum, t) => sum + (t.totalProfit || 0), 0);
   
   // Total nominal belanja dari kolom Update Stok Barang
   const totalBelanjaStok = filteredStockPurchases.reduce((sum, sp) => sum + sp.amount, 0);
 
+  // OMSET BERKURANG DENGAN ADANYA UPDATE BELANJA STOK:
+  const totalOmsetBersih = totalOmsetKotor - totalBelanjaStok;
+
   // OTOMATIS DIKURANG: Total Keuntungan Bersih (Laba) = Laba Penjualan - Total Belanja Stok
   const totalNetProfit = totalGrossProfit - totalBelanjaStok;
 
   const totalCount = filteredTransactions.length;
-  const avgOrderValue = totalCount > 0 ? Math.round(totalOmset / totalCount) : 0;
-  const netMarginPercent = totalOmset > 0 ? ((totalNetProfit / totalOmset) * 100).toFixed(1) : '0';
+  const avgOrderValue = totalCount > 0 ? Math.round(totalOmsetKotor / totalCount) : 0;
+  const netMarginPercent = totalOmsetKotor > 0 ? ((totalNetProfit / totalOmsetKotor) * 100).toFixed(1) : '0';
 
   // Best selling products ranking
   const topProducts = useMemo(() => {
@@ -659,13 +662,22 @@ export const ReportView: React.FC = () => {
         /* SUPER ADMIN: 4 KARTU METRIK LENGKAP */
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           
-          {/* Metric 1: Total Omset */}
-          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-            <span className="text-slate-400 text-xs font-medium block">Total Omset Penjualan</span>
-            <p className="text-xl sm:text-2xl font-extrabold text-white mt-1">
-              {formatRupiah(totalOmset)}
+          {/* Metric 1: Total Omset (Berkurang dengan Update Belanja Stok) */}
+          <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl relative overflow-hidden">
+            <span className="text-slate-400 text-xs font-medium block">Total Omset (Setelah Belanja Stok)</span>
+            <p className={`text-xl sm:text-2xl font-extrabold mt-1 ${totalOmsetBersih >= 0 ? 'text-white' : 'text-rose-400'}`}>
+              {formatRupiah(totalOmsetBersih)}
             </p>
-            <span className="text-[11px] text-slate-500 mt-1 block">Dari {totalCount} transaksi struk kasir</span>
+            <div className="text-[10px] text-slate-400 mt-1.5 pt-1.5 border-t border-slate-800/80 flex flex-col gap-0.5">
+              <div className="flex justify-between items-center">
+                <span>Omset Penjualan:</span>
+                <span className="text-slate-200 font-medium">+{formatRupiah(totalOmsetKotor)}</span>
+              </div>
+              <div className="flex justify-between items-center text-amber-400">
+                <span>Dipotong Belanja Stok:</span>
+                <span className="font-bold">-{formatRupiah(totalBelanjaStok)}</span>
+              </div>
+            </div>
           </div>
 
           {/* Metric 2: TOTAL KEUNTUNGAN BERSIH (LABA) */}
@@ -721,7 +733,7 @@ export const ReportView: React.FC = () => {
               {formatRupiah(totalBelanjaStok)}
             </p>
             <span className="text-[11px] text-slate-400 mt-1 block">
-              {filteredStockPurchases.length} kali belanja (memotong laba bersih)
+              {filteredStockPurchases.length} kali belanja (memotong omset & laba)
             </span>
           </div>
 
@@ -739,18 +751,27 @@ export const ReportView: React.FC = () => {
         /* AKUN ANGGOTA (KASIR): HANYA TOTAL OMSET DAN JUMLAH STRUK PENJUALAN */
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           
-          {/* Metric 1: Total Omset Penjualan */}
+          {/* Metric 1: Total Omset Penjualan (Berkurang dengan Update Belanja Stok) */}
           <div className="bg-slate-900 border border-emerald-900/50 p-5 rounded-2xl shadow-lg">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-slate-400 text-xs font-medium">Total Omset Penjualan</span>
+              <span className="text-slate-400 text-xs font-medium">Total Omset (Setelah Belanja Stok)</span>
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
             </div>
             <p className="text-2xl sm:text-3xl font-extrabold text-white mt-1">
-              {formatRupiah(totalOmset)}
+              {formatRupiah(totalOmsetBersih)}
             </p>
-            <span className="text-xs text-slate-400 mt-1.5 block">
-              Total omset dari {totalCount} transaksi penjualan
-            </span>
+            <div className="text-xs text-slate-400 mt-2 flex flex-col gap-1 border-t border-slate-800/80 pt-2">
+              <div className="flex justify-between items-center text-[11px]">
+                <span>Omset Struk ({totalCount} transaksi):</span>
+                <span className="text-slate-200 font-medium">+{formatRupiah(totalOmsetKotor)}</span>
+              </div>
+              {totalBelanjaStok > 0 && (
+                <div className="flex justify-between items-center text-[11px] text-amber-400">
+                  <span>Dipotong Update Belanja Stok:</span>
+                  <span className="font-bold">-{formatRupiah(totalBelanjaStok)}</span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Metric 2: Jumlah Struk Penjualan */}

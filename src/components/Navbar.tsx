@@ -5,6 +5,8 @@ import {
   Package, 
   Users, 
   BarChart3, 
+  BookOpen,
+  Landmark,
   Settings, 
   LogOut, 
   Volume2, 
@@ -13,12 +15,14 @@ import {
   UserCheck,
   Store,
   Clock,
-  RefreshCw
+  RefreshCw,
+  Menu
 } from 'lucide-react';
 
 export const Navbar: React.FC<{ 
   onOpenSettings?: () => void;
-}> = ({ onOpenSettings }) => {
+  onToggleSidebar?: () => void;
+}> = ({ onOpenSettings, onToggleSidebar }) => {
   const { 
     currentUser, 
     logout, 
@@ -29,9 +33,7 @@ export const Navbar: React.FC<{
     users,
     syncStatus,
     lastSyncTime,
-    syncWithServer,
-    signInWithGoogle,
-    firebaseUser
+    syncWithServer
   } = usePos();
   const [currentTime, setCurrentTime] = useState<string>('');
 
@@ -58,12 +60,24 @@ export const Navbar: React.FC<{
 
   return (
     <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-md">
-      <div className="max-w-7xl mx-auto px-3 sm:px-6">
+      <div className="w-full px-3 sm:px-6">
         <div className="flex items-center justify-between h-16 gap-2">
           
-          {/* Left Brand & Shop Name */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 font-bold shadow-md shadow-emerald-500/20 overflow-hidden">
+          {/* Left: Sidebar Toggle Button & Brand */}
+          <div className="flex items-center gap-2.5 shrink-0">
+            {onToggleSidebar && (
+              <button
+                type="button"
+                onClick={onToggleSidebar}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer flex items-center gap-1.5 border border-slate-700/80 shadow-sm"
+                title="Buka / Tutup Menu Side Bar"
+              >
+                <Menu className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400" />
+                <span className="hidden sm:inline text-xs font-bold text-slate-200">Side Bar</span>
+              </button>
+            )}
+
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 font-bold shadow-md shadow-emerald-500/20 overflow-hidden shrink-0">
               {settings.storeLogoUrl ? (
                 <img
                   src={settings.storeLogoUrl}
@@ -74,26 +88,26 @@ export const Navbar: React.FC<{
                 <Store className="w-5 h-5 text-slate-950" />
               )}
             </div>
-            <div className="hidden sm:block">
+            <div className="hidden md:block">
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-white text-base tracking-tight">AFSTORE</span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
                   POS
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400 truncate max-w-[180px]">
+              <p className="text-[11px] text-slate-400 truncate max-w-[160px]">
                 {settings.storeName}
               </p>
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto py-1">
+          {/* Navigation Links (Quick Access) */}
+          <nav className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto py-1 custom-scrollbar">
             {/* POS Menu */}
             <button
               type="button"
               onClick={() => setActiveTab('pos')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
                 activeTab === 'pos'
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -107,40 +121,21 @@ export const Navbar: React.FC<{
             <button
               type="button"
               onClick={() => setActiveTab('products')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
                 activeTab === 'products'
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
               }`}
             >
               <Package className="w-4 h-4" />
-              <span>Katalog Barang</span>
+              <span>Katalog</span>
             </button>
-
-            {/* Member Management: ONLY for Super Admin */}
-            {isSuperAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveTab('members')}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 relative ${
-                  activeTab === 'members'
-                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
-                    : 'text-purple-300 hover:text-white hover:bg-purple-950/40 border border-purple-800/40'
-                }`}
-              >
-                <Users className="w-4 h-4 text-purple-300" />
-                <span>Kelola Anggota</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-900 text-purple-200 border border-purple-700 font-bold">
-                  {memberCount}
-                </span>
-              </button>
-            )}
 
             {/* Reports & Transaction History */}
             <button
               type="button"
               onClick={() => setActiveTab('reports')}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
                 activeTab === 'reports'
                   ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/30'
                   : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
@@ -149,6 +144,50 @@ export const Navbar: React.FC<{
               <BarChart3 className="w-4 h-4" />
               <span>Laporan & Struk</span>
             </button>
+
+            {/* Buku Kas Umum (BKU) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('bku')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
+                activeTab === 'bku'
+                  ? 'bg-teal-600 text-white shadow-lg shadow-teal-600/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <BookOpen className="w-4 h-4 text-teal-300" />
+              <span>Buku Kas Umum</span>
+            </button>
+
+            {/* Buku Kas Besar (BKB) */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('bkb')}
+              className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 ${
+                activeTab === 'bkb'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Landmark className="w-4 h-4 text-indigo-300" />
+              <span>Buku Kas Besar</span>
+            </button>
+
+            {/* Member Management: ONLY for Super Admin */}
+            {isSuperAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('members')}
+                className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition cursor-pointer shrink-0 relative ${
+                  activeTab === 'members'
+                    ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30'
+                    : 'text-purple-300 hover:text-white hover:bg-purple-950/40 border border-purple-800/40'
+                }`}
+              >
+                <Users className="w-4 h-4 text-purple-300" />
+                <span>Anggota ({memberCount})</span>
+              </button>
+            )}
           </nav>
 
           {/* Right Section: Cloud Sync, Migration Tool, Clock, Sound, User info, Logout */}

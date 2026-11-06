@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { UserAccount, Product, CartItem, Transaction, StoreSettings, UserRole, StockPurchase } from '../types';
+import { UserAccount, Product, CartItem, Transaction, StoreSettings, UserRole, StockPurchase, CashEntry, NavTab } from '../types';
 import { INITIAL_USERS, INITIAL_PRODUCTS, INITIAL_SETTINGS, INITIAL_TRANSACTIONS, INITIAL_STOCK_PURCHASES } from '../data/initialData';
 import { sound } from '../utils/sound';
 import { generateReceiptNumber } from '../utils/format';
@@ -33,9 +33,10 @@ interface PosContextType {
   cart: CartItem[];
   transactions: Transaction[];
   stockPurchases: StockPurchase[];
+  cashEntries: CashEntry[];
   settings: StoreSettings;
-  activeTab: 'pos' | 'products' | 'members' | 'reports' | 'settings';
-  setActiveTab: (tab: 'pos' | 'products' | 'members' | 'reports' | 'settings') => void;
+  activeTab: NavTab;
+  setActiveTab: (tab: NavTab) => void;
   // Cloud Firestore Sync State
   syncStatus: SyncStatus;
   lastSyncTime: string | null;
@@ -74,6 +75,10 @@ interface PosContextType {
   addStockPurchase: (data: { date: string; amount: number; description: string }) => { success: boolean; message: string };
   updateStockPurchase: (id: string, data: { date: string; amount: number; description: string }) => { success: boolean; message: string };
   deleteStockPurchase: (id: string) => { success: boolean; message: string };
+  // Cash Entries (Buku Kas Umum & Buku Kas Besar)
+  addCashEntry: (data: Omit<CashEntry, 'id' | 'createdAt'>) => { success: boolean; message: string };
+  updateCashEntry: (id: string, data: Partial<CashEntry>) => { success: boolean; message: string };
+  deleteCashEntry: (id: string) => { success: boolean; message: string };
   // Settings & Reset
   updateSettings: (newSettings: Partial<StoreSettings>) => void;
   resetAllData: () => void;
@@ -119,6 +124,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [stockPurchases, setStockPurchases] = useState<StockPurchase[]>(INITIAL_STOCK_PURCHASES);
+  const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
   const [settings, setSettings] = useState<StoreSettings>(INITIAL_SETTINGS);
 
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
@@ -132,7 +138,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   });
 
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [activeTab, setActiveTab] = useState<'pos' | 'products' | 'members' | 'reports' | 'settings'>('pos');
+  const [activeTab, setActiveTab] = useState<NavTab>('pos');
   const isSeedingRef = useRef(false);
 
   // 1. Listen to Firebase Auth state
@@ -313,11 +319,30 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     );
 
+    // Realtime Cash Entries listener (Buku Kas Umum & Buku Kas Besar)
+    const unsubCashEntries = onSnapshot(
+      collection(db, 'cashEntries'),
+      (snapshot) => {
+        const ces: CashEntry[] = [];
+        snapshot.forEach((docSnap) => {
+          ces.push(docSnap.data() as CashEntry);
+        });
+        ces.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        setCashEntries(ces);
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('id-ID'));
+      },
+      (error) => {
+        console.warn('Cash entries sync error:', error.message);
+      }
+    );
+
     return () => {
       unsubSettings();
       unsubProducts();
       unsubTransactions();
       unsubStockPurchases();
+      unsubCashEntries();
       unsubUsers();
     };
   }, []);
@@ -956,6 +981,66 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return { success: true, message: 'Catatan belanja stok barang berhasil dihapus dari Cloud Realtime.' };
   };
 
+  // Cash Entries Methods (Buku Kas Umum & Buku Kas Besar)
+  const addCashEntry = (data: Omit<CashEntry, 'id' | 'createdAt'>): { success: boolean; message: string } => {
+    if (data.amount <= 0) {
+      return { success: false, message: 'Nominal transaksi kas harus lebih dari Rp 0.' };
+    }
+    const newId = `cash-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const newEntry: CashEntry = {
+      ...data,
+      id: newId,
+      amount: Math.max(0, Math.round(data.amount)),
+      description: data.description.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    setCashEntries(prev => [newEntry, ...prev]);
+
+    setDoc(doc(db, 'cashEntries', newId), sanitizeForFirestore(newEntry)).catch(e => 
+      handleFirestoreError(e, OperationType.CREATE, `cashEntries/${newId}`)
+    );
+
+    sound.playSuccess(settings.enableSound);
+    return { success: true, message: 'Catatan buku kas berhasil disimpan ke Cloud Realtime.' };
+  };
+
+  const updateCashEntry = (id: string, updates: Partial<CashEntry>): { success: boolean; message: string } => {
+    const target = cashEntries.find(ce => ce.id === id);
+    if (!target) return { success: false, message: 'Data catatan kas tidak ditemukan.' };
+
+    const sanitizedUpdates: Partial<CashEntry> = { ...updates };
+    if (sanitizedUpdates.amount !== undefined) {
+      sanitizedUpdates.amount = Math.max(0, Math.round(sanitizedUpdates.amount));
+    }
+    if (sanitizedUpdates.description !== undefined) {
+      sanitizedUpdates.description = sanitizedUpdates.description.trim();
+    }
+
+    setCashEntries(prev => prev.map(ce => ce.id === id ? { ...ce, ...sanitizedUpdates } : ce));
+
+    updateDoc(doc(db, 'cashEntries', id), sanitizeForFirestore(sanitizedUpdates)).catch(e => 
+      handleFirestoreError(e, OperationType.UPDATE, `cashEntries/${id}`)
+    );
+
+    sound.playSuccess(settings.enableSound);
+    return { success: true, message: 'Catatan buku kas berhasil diperbarui di Cloud Realtime.' };
+  };
+
+  const deleteCashEntry = (id: string): { success: boolean; message: string } => {
+    const target = cashEntries.find(ce => ce.id === id);
+    if (!target) return { success: false, message: 'Data catatan kas tidak ditemukan.' };
+
+    setCashEntries(prev => prev.filter(ce => ce.id !== id));
+
+    deleteDoc(doc(db, 'cashEntries', id)).catch(e => 
+      handleFirestoreError(e, OperationType.DELETE, `cashEntries/${id}`)
+    );
+
+    sound.playClick(settings.enableSound);
+    return { success: true, message: 'Catatan buku kas berhasil dihapus dari Cloud Realtime.' };
+  };
+
   // Settings directly to Firestore
   const updateSettings = (newSettings: Partial<StoreSettings>) => {
     const nextSettings = { ...settings, ...newSettings };
@@ -974,6 +1059,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setProducts(INITIAL_PRODUCTS);
     setTransactions(INITIAL_TRANSACTIONS);
     setStockPurchases(INITIAL_STOCK_PURCHASES);
+    setCashEntries([]);
     setSettings(INITIAL_SETTINGS);
     setCart([]);
 
@@ -992,6 +1078,7 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         cart,
         transactions,
         stockPurchases,
+        cashEntries,
         settings,
         activeTab,
         setActiveTab,
@@ -1020,6 +1107,9 @@ export const PosProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         addStockPurchase,
         updateStockPurchase,
         deleteStockPurchase,
+        addCashEntry,
+        updateCashEntry,
+        deleteCashEntry,
         updateSettings,
         resetAllData,
       }}

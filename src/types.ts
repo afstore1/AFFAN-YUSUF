@@ -85,3 +85,18 @@ export interface StockPurchase {
   description: string; // Keterangan
   createdAt: string;
 }
+
+export type NavTab = 'pos' | 'products' | 'members' | 'reports' | 'bku' | 'bkb' | 'settings';
+
+export interface CashEntry {
+  id: string;
+  type: 'in' | 'out'; // in = Penerimaan / Masuk (Debet), out = Pengeluaran / Keluar (Kredit)
+  category: string; // e.g. 'Penjualan Kasir', 'Belanja Stok Barang', 'Operasional Toko', 'Modal Masuk', 'Lain-lain'
+  amount: number;
+  date: string;
+  description: string;
+  referenceNo?: string;
+  paymentMethod: 'cash' | 'bank' | 'qris';
+  recordedBy: string;
+  createdAt: string;
+}

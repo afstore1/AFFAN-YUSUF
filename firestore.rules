@@ -32,6 +32,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Shared Cash Book Entries (Buku Kas Umum & Buku Kas Besar)
+    match /cashEntries/{entryId} {
+      allow read, write: if true;
+    }
+
     // Deny all other unknown collections
     match /{document=**} {
       allow read, write: if false;
