@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { usePos } from '../context/PosContext';
 import { CashEntry } from '../types';
-import { formatRupiah, formatMonthYearIndo } from '../utils/format';
+import { formatRupiah, formatFullDateWithDay, formatMonthYearIndo } from '../utils/format';
 import { 
   BookOpen, 
   ArrowDownLeft, 
@@ -14,7 +14,9 @@ import {
   Filter, 
   CheckCircle2, 
   X, 
-  CalendarRange
+  CalendarRange,
+  TrendingUp,
+  Clock
 } from 'lucide-react';
 
 interface CombinedCashRecord {
@@ -23,12 +25,13 @@ interface CombinedCashRecord {
   type: 'in' | 'out'; // in = penerimaan, out = pengeluaran
   date: string; // ISO date string
   namaBarangTerjual: string;
+  fullDateWithDay: string;
+  timeStr: string;
   penerimaan: number;
+  keuntungan: number;
   pengeluaran: number;
-  detailInfo?: string;
   monthKey: string;
   monthLabel: string;
-  dayName: string;
   rawEntry?: CashEntry;
 }
 
@@ -38,8 +41,8 @@ export const BukuKasUmumView: React.FC = () => {
     transactions, 
     stockPurchases, 
     cashEntries, 
+    products,
     addCashEntry, 
-    deleteCashEntry,
   } = usePos();
 
   // Filters
@@ -63,15 +66,24 @@ export const BukuKasUmumView: React.FC = () => {
 
   const [feedbackMessage, setFeedbackMessage] = useState<string>('');
 
+  // Map harga modal produk untuk perhitungan keuntungan yang akurat
+  const productCostMap = useMemo(() => {
+    const map = new Map<string, number>();
+    products.forEach(p => {
+      map.set(p.id, p.costPrice || 0);
+    });
+    return map;
+  }, [products]);
+
   // Combine POS transactions (decomposed per sold item), Stock Purchases, and Manual Cash Entries
   const allCashRecords = useMemo(() => {
     const list: CombinedCashRecord[] = [];
 
-    // 1. Penerimaan dari Transaksi Penjualan Kasir (POS) - Dipecah per Nama Barang Terjual
+    // 1. Penerimaan & Keuntungan dari Transaksi Penjualan Kasir (POS) - Dipecah per Nama Barang Terjual
     transactions.forEach(tx => {
       const d = new Date(tx.date);
       const isValid = !isNaN(d.getTime());
-      const dayName = isValid ? new Intl.DateTimeFormat('id-ID', { weekday: 'long' }).format(d) : '-';
+      const fullDateWithDay = isValid ? formatFullDateWithDay(tx.date) : tx.date;
       const timeStr = isValid ? d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '';
       const monthKey = isValid ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'Lainnya';
       const monthLabel = isValid ? formatMonthYearIndo(tx.date) : 'Lainnya';
@@ -79,18 +91,24 @@ export const BukuKasUmumView: React.FC = () => {
       if (tx.items && tx.items.length > 0) {
         tx.items.forEach((item, itemIdx) => {
           const qtyText = item.quantity > 1 ? ` (${item.quantity} ${item.unit || 'pcs'})` : '';
+          const subtotal = item.subtotal || (item.price * item.quantity);
+          const costPrice = item.costPrice || productCostMap.get(item.productId) || 0;
+          const costTotal = costPrice * item.quantity;
+          const itemProfit = Math.max(0, subtotal - costTotal);
+
           list.push({
             id: `tx-${tx.id}-${item.productId || itemIdx}-${itemIdx}`,
             sourceType: 'pos_transaction',
             type: 'in',
             date: tx.date,
             namaBarangTerjual: `${item.name}${qtyText}`,
-            penerimaan: item.subtotal || (item.price * item.quantity),
+            fullDateWithDay,
+            timeStr,
+            penerimaan: subtotal,
+            keuntungan: itemProfit,
             pengeluaran: 0,
-            detailInfo: `Nota #${tx.receiptNumber} • ${dayName}, ${timeStr}`,
             monthKey,
             monthLabel,
-            dayName,
           });
         });
       } else {
@@ -100,21 +118,22 @@ export const BukuKasUmumView: React.FC = () => {
           type: 'in',
           date: tx.date,
           namaBarangTerjual: `Penjualan Kasir (Nota #${tx.receiptNumber})`,
+          fullDateWithDay,
+          timeStr,
           penerimaan: tx.total,
+          keuntungan: tx.totalProfit || 0,
           pengeluaran: 0,
-          detailInfo: `Nota #${tx.receiptNumber} • ${dayName}, ${timeStr}`,
           monthKey,
           monthLabel,
-          dayName,
         });
       }
     });
 
-    // 2. Pengeluaran dari Update Belanja Stok Barang
+    // 2. Pengeluaran dari Belanja Stok Barang
     stockPurchases.forEach(sp => {
       const d = new Date(sp.date);
       const isValid = !isNaN(d.getTime());
-      const dayName = isValid ? new Intl.DateTimeFormat('id-ID', { weekday: 'long' }).format(d) : '-';
+      const fullDateWithDay = isValid ? formatFullDateWithDay(sp.date) : sp.date;
       const timeStr = isValid ? d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '12:00';
       const monthKey = isValid ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'Lainnya';
       const monthLabel = isValid ? formatMonthYearIndo(sp.date) : 'Lainnya';
@@ -125,12 +144,13 @@ export const BukuKasUmumView: React.FC = () => {
         type: 'out',
         date: sp.date,
         namaBarangTerjual: sp.description ? `Belanja Stok: ${sp.description}` : 'Belanja Stok Persediaan Barang',
+        fullDateWithDay,
+        timeStr,
         penerimaan: 0,
+        keuntungan: 0,
         pengeluaran: sp.amount,
-        detailInfo: `Belanja Stok Toko • ${dayName}, ${timeStr}`,
         monthKey,
         monthLabel,
-        dayName,
       });
     });
 
@@ -138,7 +158,7 @@ export const BukuKasUmumView: React.FC = () => {
     cashEntries.forEach(ce => {
       const d = new Date(ce.date);
       const isValid = !isNaN(d.getTime());
-      const dayName = isValid ? new Intl.DateTimeFormat('id-ID', { weekday: 'long' }).format(d) : '-';
+      const fullDateWithDay = isValid ? formatFullDateWithDay(ce.date) : ce.date;
       const timeStr = isValid ? d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '';
       const monthKey = isValid ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : 'Lainnya';
       const monthLabel = isValid ? formatMonthYearIndo(ce.date) : 'Lainnya';
@@ -149,12 +169,13 @@ export const BukuKasUmumView: React.FC = () => {
         type: ce.type,
         date: ce.date,
         namaBarangTerjual: ce.description || (ce.type === 'in' ? 'Penerimaan Kas' : 'Pengeluaran Kas'),
+        fullDateWithDay,
+        timeStr,
         penerimaan: ce.type === 'in' ? ce.amount : 0,
+        keuntungan: 0,
         pengeluaran: ce.type === 'out' ? ce.amount : 0,
-        detailInfo: `${ce.category} • ${dayName}, ${timeStr}`,
         monthKey,
         monthLabel,
-        dayName,
         rawEntry: ce,
       });
     });
@@ -162,7 +183,7 @@ export const BukuKasUmumView: React.FC = () => {
     // Urutkan kronologis dari tanggal terlama ke terbaru untuk hitung saldo berjalan
     list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     return list;
-  }, [transactions, stockPurchases, cashEntries]);
+  }, [transactions, stockPurchases, cashEntries, productCostMap]);
 
   // Hitung saldo berjalan secara kronologis (penerimaan menambah saldo, pengeluaran mengurangi saldo)
   const recordsWithBalance = useMemo(() => {
@@ -207,12 +228,12 @@ export const BukuKasUmumView: React.FC = () => {
         return false;
       }
 
-      // Search Query pada Nama Barang Terjual
+      // Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const match = 
           item.namaBarangTerjual.toLowerCase().includes(q) ||
-          (item.detailInfo && item.detailInfo.toLowerCase().includes(q));
+          item.fullDateWithDay.toLowerCase().includes(q);
         if (!match) return false;
       }
 
@@ -228,6 +249,10 @@ export const BukuKasUmumView: React.FC = () => {
   // Ringkasan Total
   const totalPenerimaan = useMemo(() => {
     return filteredRecords.reduce((sum, r) => sum + r.penerimaan, 0);
+  }, [filteredRecords]);
+
+  const totalKeuntungan = useMemo(() => {
+    return filteredRecords.reduce((sum, r) => sum + r.keuntungan, 0);
   }, [filteredRecords]);
 
   const totalPengeluaran = useMemo(() => {
@@ -290,7 +315,7 @@ export const BukuKasUmumView: React.FC = () => {
     setTimeout(() => setFeedbackMessage(''), 3500);
   };
 
-  // Export to CSV with strictly the 5 requested columns
+  // Export to CSV with strictly the requested columns
   const handleExportCSV = () => {
     if (filteredRecords.length === 0) {
       alert('Tidak ada data buku kas umum untuk diekspor.');
@@ -300,7 +325,9 @@ export const BukuKasUmumView: React.FC = () => {
     const headers = [
       'Nomor',
       'Nama Barang Terjual',
+      'Tanggal',
       'Penerimaan',
+      'Keuntungan',
       'Pengeluaran',
       'Saldo Berjalan'
     ];
@@ -308,7 +335,9 @@ export const BukuKasUmumView: React.FC = () => {
     const rows = filteredRecords.map((r, idx) => [
       idx + 1,
       `"${r.namaBarangTerjual.replace(/"/g, '""')}"`,
+      `"${r.fullDateWithDay} ${r.timeStr}"`,
       r.penerimaan,
+      r.keuntungan,
       r.pengeluaran,
       r.balance
     ]);
@@ -337,11 +366,11 @@ export const BukuKasUmumView: React.FC = () => {
             <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
               Buku Kas Umum
               <span className="text-[10px] bg-teal-950 text-teal-300 border border-teal-800 px-2 py-0.5 rounded-full font-bold">
-                Pembukuan Kas Realtime
+                Realtime Cloud
               </span>
             </h2>
             <p className="text-xs text-slate-400">
-              Pencatatan nomor, nama barang terjual, penerimaan, pengeluaran dan saldo berjalan
+              Pencatatan nomor, nama barang terjual + tanggal, penerimaan, keuntungan, pengeluaran dan saldo berjalan
             </p>
           </div>
         </div>
@@ -399,7 +428,7 @@ export const BukuKasUmumView: React.FC = () => {
       )}
 
       {/* Financial Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         
         {/* Card 1: Penerimaan */}
         <div className="bg-slate-900 border border-emerald-900/40 p-4 rounded-2xl relative overflow-hidden">
@@ -411,15 +440,33 @@ export const BukuKasUmumView: React.FC = () => {
               Kas Masuk
             </span>
           </div>
-          <p className="text-xl sm:text-2xl font-extrabold text-emerald-400 mt-2 font-mono">
+          <p className="text-xl font-extrabold text-emerald-400 mt-2 font-mono">
             {formatRupiah(totalPenerimaan)}
           </p>
           <span className="text-[11px] text-slate-400 mt-1 block">
-            Total penerimaan barang terjual & setoran
+            Total omset penerimaan barang terjual
           </span>
         </div>
 
-        {/* Card 2: Pengeluaran */}
+        {/* Card 2: Keuntungan (Laba Bersih Produk) */}
+        <div className="bg-slate-900 border border-cyan-900/40 p-4 rounded-2xl relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-cyan-400 text-xs font-bold flex items-center gap-1">
+              <TrendingUp className="w-4 h-4" /> Keuntungan
+            </span>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800">
+              Laba Bersih
+            </span>
+          </div>
+          <p className="text-xl font-extrabold text-cyan-400 mt-2 font-mono">
+            {formatRupiah(totalKeuntungan)}
+          </p>
+          <span className="text-[11px] text-slate-400 mt-1 block">
+            Total margin keuntungan produk terjual
+          </span>
+        </div>
+
+        {/* Card 3: Pengeluaran */}
         <div className="bg-slate-900 border border-rose-900/40 p-4 rounded-2xl relative overflow-hidden">
           <div className="flex items-center justify-between">
             <span className="text-rose-400 text-xs font-bold flex items-center gap-1">
@@ -429,7 +476,7 @@ export const BukuKasUmumView: React.FC = () => {
               Kas Keluar
             </span>
           </div>
-          <p className="text-xl sm:text-2xl font-extrabold text-rose-400 mt-2 font-mono">
+          <p className="text-xl font-extrabold text-rose-400 mt-2 font-mono">
             {formatRupiah(totalPengeluaran)}
           </p>
           <span className="text-[11px] text-slate-400 mt-1 block">
@@ -437,7 +484,7 @@ export const BukuKasUmumView: React.FC = () => {
           </span>
         </div>
 
-        {/* Card 3: Saldo Berjalan (Sisa Saldo Kas) */}
+        {/* Card 4: Saldo Berjalan (Sisa Saldo Kas) */}
         <div className="bg-slate-900 border border-teal-900/50 p-4 rounded-2xl relative overflow-hidden shadow-inner">
           <div className="flex items-center justify-between">
             <span className="text-teal-400 text-xs font-bold flex items-center gap-1">
@@ -451,7 +498,7 @@ export const BukuKasUmumView: React.FC = () => {
               {saldoKasAkhir >= 0 ? 'Surplus' : 'Defisit'}
             </span>
           </div>
-          <p className={`text-xl sm:text-2xl font-extrabold mt-2 font-mono ${
+          <p className={`text-xl font-extrabold mt-2 font-mono ${
             saldoKasAkhir >= 0 ? 'text-teal-300' : 'text-rose-400'
           }`}>
             {formatRupiah(saldoKasAkhir)}
@@ -465,14 +512,14 @@ export const BukuKasUmumView: React.FC = () => {
 
       {/* Filter Toolbar */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-        {/* Search Nama Barang Terjual */}
+        {/* Search Nama Barang Terjual / Tanggal */}
         <div className="md:col-span-4 relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Cari nama barang terjual..."
+            placeholder="Cari nama barang terjual atau tanggal..."
             className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs sm:text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-teal-500"
           />
         </div>
@@ -524,16 +571,23 @@ export const BukuKasUmumView: React.FC = () => {
         </div>
       </div>
 
-      {/* Table Buku Kas Umum - HANYA 5 KOLOM: Nomor, Nama Barang Terjual, Penerimaan, Pengeluaran, Saldo Berjalan */}
+      {/* Table Buku Kas Umum - HANYA KOLOM YANG DIMINTA:
+          1. Nomor
+          2. Nama Barang Terjual + Tanggal
+          3. Penerimaan
+          4. Keuntungan
+          5. Pengeluaran
+          6. Saldo Berjalan
+      */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="p-4 border-b border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="font-bold text-sm text-white flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-teal-400" />
-              <span>Buku Kas Umum ({filteredRecords.length} Catatan)</span>
+              <span>Daftar Transaksi Buku Kas Umum ({filteredRecords.length} Catatan)</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Hanya menampilkan Nomor, Nama Barang Terjual, Penerimaan, Pengeluaran dan Saldo Berjalan
+              Menampilkan Nomor, Nama Barang Terjual + Tanggal, Penerimaan, Keuntungan, Pengeluaran dan Saldo Berjalan
             </p>
           </div>
           <span className="text-xs font-mono text-slate-400">
@@ -546,16 +600,17 @@ export const BukuKasUmumView: React.FC = () => {
             <thead className="bg-slate-950/90 text-slate-300 text-[11px] uppercase tracking-wider border-b border-slate-800">
               <tr>
                 <th className="py-3.5 px-3 text-center w-14">Nomor</th>
-                <th className="py-3.5 px-4 min-w-[240px]">Nama Barang Terjual</th>
-                <th className="py-3.5 px-4 text-right min-w-[140px] text-emerald-400">Penerimaan</th>
-                <th className="py-3.5 px-4 text-right min-w-[140px] text-rose-400">Pengeluaran</th>
-                <th className="py-3.5 px-4 text-right min-w-[150px] text-teal-300">Saldo Berjalan</th>
+                <th className="py-3.5 px-4 min-w-[260px]">Nama Barang Terjual + Tanggal</th>
+                <th className="py-3.5 px-4 text-right min-w-[130px] text-emerald-400">Penerimaan</th>
+                <th className="py-3.5 px-4 text-right min-w-[130px] text-cyan-400">Keuntungan</th>
+                <th className="py-3.5 px-4 text-right min-w-[130px] text-rose-400">Pengeluaran</th>
+                <th className="py-3.5 px-4 text-right min-w-[140px] text-teal-300">Saldo Berjalan</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80 text-slate-200">
               {displayRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-slate-500">
+                  <td colSpan={6} className="py-12 text-center text-slate-500">
                     Belum ada catatan buku kas umum yang sesuai dengan filter pencarian.
                   </td>
                 </tr>
@@ -563,36 +618,49 @@ export const BukuKasUmumView: React.FC = () => {
                 displayRecords.map((item, index) => (
                   <tr key={item.id} className="hover:bg-slate-800/40 transition">
                     
-                    {/* Nomor */}
+                    {/* 1. Nomor */}
                     <td className="py-3.5 px-3 text-center text-slate-400 font-mono text-xs">
                       {index + 1}
                     </td>
 
-                    {/* Nama Barang Terjual */}
+                    {/* 2. Nama Barang Terjual + Tanggal */}
                     <td className="py-3.5 px-4">
-                      <div className="flex flex-col">
+                      <div className="flex flex-col gap-0.5">
                         <span className="font-semibold text-white text-xs sm:text-sm">
                           {item.namaBarangTerjual}
                         </span>
-                        {item.detailInfo && (
-                          <span className="text-[10px] text-slate-400 mt-0.5">
-                            {item.detailInfo}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
+                          <Calendar className="w-3 h-3 text-slate-500 shrink-0" />
+                          <span>{item.fullDateWithDay}</span>
+                          {item.timeStr && (
+                            <>
+                              <span className="text-slate-600">•</span>
+                              <span className="flex items-center gap-0.5 font-mono">
+                                <Clock className="w-2.5 h-2.5 text-slate-500" />
+                                {item.timeStr} WIB
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </td>
 
-                    {/* Penerimaan */}
+                    {/* 3. Penerimaan */}
                     <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400 whitespace-nowrap">
                       {item.penerimaan > 0 ? `+${formatRupiah(item.penerimaan)}` : '-'}
                     </td>
 
-                    {/* Pengeluaran */}
+                    {/* 4. Keuntungan */}
+                    <td className="py-3.5 px-4 text-right font-mono font-bold text-cyan-400 whitespace-nowrap">
+                      {item.keuntungan > 0 ? `+${formatRupiah(item.keuntungan)}` : (item.type === 'in' ? 'Rp 0' : '-')}
+                    </td>
+
+                    {/* 5. Pengeluaran */}
                     <td className="py-3.5 px-4 text-right font-mono font-bold text-rose-400 whitespace-nowrap">
                       {item.pengeluaran > 0 ? `-${formatRupiah(item.pengeluaran)}` : '-'}
                     </td>
 
-                    {/* Saldo Berjalan */}
+                    {/* 6. Saldo Berjalan */}
                     <td className="py-3.5 px-4 text-right font-mono font-extrabold text-teal-300 whitespace-nowrap bg-teal-950/10">
                       {formatRupiah(item.balance)}
                     </td>
@@ -611,6 +679,9 @@ export const BukuKasUmumView: React.FC = () => {
                   </td>
                   <td className="py-3.5 px-4 text-right text-emerald-400 font-extrabold font-mono text-sm">
                     +{formatRupiah(totalPenerimaan)}
+                  </td>
+                  <td className="py-3.5 px-4 text-right text-cyan-400 font-extrabold font-mono text-sm">
+                    +{formatRupiah(totalKeuntungan)}
                   </td>
                   <td className="py-3.5 px-4 text-right text-rose-400 font-extrabold font-mono text-sm">
                     -{formatRupiah(totalPengeluaran)}
@@ -739,7 +810,7 @@ export const BukuKasUmumView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Uraian / Keterangan (Nama Barang / Uraian) */}
+              {/* Nama Barang / Uraian Transaksi */}
               <div>
                 <label className="block text-slate-300 font-medium mb-1">
                   Nama Barang / Keterangan Transaksi <span className="text-rose-400">*</span>
